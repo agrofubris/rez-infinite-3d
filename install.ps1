@@ -40,7 +40,9 @@ function Install-File([string]$from, [string]$to) {
     $rel = Rel $to
     $known = $script:entries | Where-Object { $_ -like "*|$rel" }
     if ((Test-Path $to) -and -not $known) {
-        Copy-Item -LiteralPath $to -Destination "$to.orig" -Force
+        # An existing .orig is older than the file now in place (an earlier mod
+        # or manual install), so it is the one to restore: never overwrite it
+        if (-not (Test-Path "$to.orig")) { Copy-Item -LiteralPath $to -Destination "$to.orig" }
         Note 'replaced' $to
     } elseif (-not $known) {
         Note 'added' $to

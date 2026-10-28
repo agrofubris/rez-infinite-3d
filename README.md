@@ -238,6 +238,27 @@ How it works, briefly:
 - That thread's swapchain is a child of the game's own window, covering the
   game's flat one-eye mirror.
 
+## Credits
+
+**Rez** was created by **Tetsuya Mizuguchi**, developed by United Game
+Artists and published by **SEGA** in 2001. **Rez Infinite** is by **Enhance**,
+with **Monstars** and **Resonair**. All credit for the game goes to them. This
+add-on only changes how its picture reaches your eyes.
+
+Rez is its music. Thanks to sound creator **Keiichi Sugiyama** and the
+soundtrack's artists, among them **Ken Ishii**, **Mist**, **Joujouka**,
+**Adam Freeland** and **Coldcut**, and to **Hydelic** for Area X.
+
+Stereo 3D:
+
+- **bo3b**: SR-lib, which the Leia SR mode is built on, and years of
+  stereo 3D modding work
+- **oneup03**: the RT64 3D work that the Leia SR approach follows
+- **masterotaku**: Leia SR panel testing and feedback that shaped how this
+  mode works
+- The NVIDIA 3D Vision and geo-11 community, whose separation and
+  convergence conventions this add-on follows
+
 ## Licence
 
 MIT. See `LICENSE`. The OpenVR header is © Valve (BSD-3-Clause); see

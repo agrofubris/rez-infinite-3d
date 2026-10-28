@@ -130,7 +130,8 @@ and `rez3d_leia_sr.dll`, which the release installs next to the 3D runtime.
   the panel does not switch to 3D. `DumpFrames` captures the woven output.
 
 **Status:** the fallback is verified, but the weave has not been tried on a
-panel yet. Reports from SR panel owners are very welcome.
+panel yet. If you own an SR panel, please open a **Leia SR test report** issue
+(the form lists what to include).
 
 ## Controllers
 

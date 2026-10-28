@@ -1,0 +1,5 @@
+* text=auto
+# Windows scripts and settings keep CRLF in checkouts and downloads
+*.ps1 text eol=crlf
+*.ini text eol=crlf
+*.cs text eol=crlf

@@ -1,0 +1,76 @@
+name: Leia SR test report
+description: Tried Format=LeiaSR on a Leia SR / SpatialLabs / Odyssey 3D panel? Tell us how it went.
+title: "[Leia SR] "
+labels: ["leia-sr", "test report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing! Before you start, in the launcher set **format** to **leia sr**.
+        To capture a frame, set `DumpFrames=2`, `DumpAfter=600`, `DumpEvery=60` in `REZ\rez3d.ini`.
+  - type: input
+    id: display
+    attributes:
+      label: Display
+      description: Model and resolution, e.g. Acer SpatialLabs View Pro 27 (3840x2160, 60 Hz)
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: SR Platform version
+      description: From the SR Platform / SpatialLabs app
+  - type: input
+    id: game
+    attributes:
+      label: Game version and store
+      description: version.txt in the game folder, and Steam or GOG
+    validations:
+      required: true
+  - type: dropdown
+    id: lens
+    attributes:
+      label: Did the panel switch to 3D?
+      options:
+        - "Yes, and it stayed in 3D"
+        - "Briefly, then dropped back to 2D"
+        - "No, it stayed 2D (side-by-side image)"
+        - "Black screen or crash"
+    validations:
+      required: true
+  - type: dropdown
+    id: depth
+    attributes:
+      label: Depth and eye tracking
+      options:
+        - "Correct depth, follows my head"
+        - "Depth looks inverted"
+        - "Depth OK but ghosting / no tracking"
+        - "Not applicable (no 3D)"
+  - type: input
+    id: fps
+    attributes:
+      label: Frame rate and render scale
+      description: e.g. smooth 60 fps at render scale 1.0
+  - type: dropdown
+    id: leiawindow
+    attributes:
+      label: Did LeiaWindow=own (in rez3d.ini) change anything?
+      options:
+        - "Didn't try"
+        - "No difference"
+        - "Yes, it works better with own"
+        - "Yes, it works worse with own"
+  - type: textarea
+    id: log
+    attributes:
+      label: rez3d.log
+      description: Paste the lines starting with "Leia SR" and "Presenter" from REZ\rez3d.log (or attach the whole file)
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Separation/convergence you liked, alt-tab behaviour, captures (rez3d_frame_*.bmp), photos of the panel

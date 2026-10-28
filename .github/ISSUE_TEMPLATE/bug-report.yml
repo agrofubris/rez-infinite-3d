@@ -1,0 +1,35 @@
+name: Problem report
+description: Something doesn't work (install, launch, 3D image, controller, ...)
+labels: ["bug"]
+body:
+  - type: input
+    id: game
+    attributes:
+      label: Game version and store
+      description: version.txt in the game folder, and Steam or GOG
+    validations:
+      required: true
+  - type: input
+    id: display
+    attributes:
+      label: Display and format
+      description: e.g. LG passive 3D monitor, 1080p, Interlaced_Reversed
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and Windows version
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Logs
+      description: Attach REZ\rez3d.log (and REZ\xinput_proxy.log for controller problems)
+      render: text

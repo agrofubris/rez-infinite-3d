@@ -24,8 +24,6 @@ swapped, with backups.
 
 This add-on doesn't modify, bypass or replace any DRM or Steam file. It only
 swaps the game's VR runtime (`openvr_api.dll`) and adds a controller DLL.
-Modified or unofficial copies of the game are not supported, and reports from
-them will be closed.
 
 ## Status: beta
 

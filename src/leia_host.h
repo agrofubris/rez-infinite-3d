@@ -15,6 +15,7 @@ public:
     // Creates the textures and the weaver on first use.
     bool Ready(ID3D11Device* device, ID3D11DeviceContext* context, HWND window, int width, int height);
     ID3D11RenderTargetView* PairRtv() const { return m_pairRtv; }
+    ID3D11Texture2D* PairTexture() const { return m_pair; }
     // Weaves the pair into the owned target and copies it into backBuffer.
     // On failure the session is disabled and false is returned.
     bool WeaveInto(ID3D11DeviceContext* context, ID3D11Texture2D* backBuffer);

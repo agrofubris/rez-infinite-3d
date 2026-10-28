@@ -87,11 +87,12 @@ private:
                       const D3D11_TEXTURE2D_DESC& desc, const EyeBounds& bounds);
     void UpdateOsdTexture(float& alpha);
     void DumpBackBuffer();
+    void DumpTexture(ID3D11Texture2D* tex, const char* kind);
     void RunMenuAnalysis();
     void AnalyzeEyes(const uint8_t* data, UINT pitch);
     HRESULT AcquireBackBuffer(ID3D11Texture2D** out);
     HRESULT PresentFrame();
-    void SaveDump(const uint8_t* data, int w, int h);
+    void SaveDump(const uint8_t* data, int w, int h, const char* kind = "frame");
     void MarkPresented(uint64_t serial);
 
     struct Capture {

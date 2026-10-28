@@ -1510,6 +1510,8 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
     m_framesSeen++;
     if (m_dumpRemaining > 0 && m_framesSeen > (unsigned long long)m_dumpAfter &&
         ((m_framesSeen - (unsigned long long)m_dumpAfter) % (unsigned long long)m_dumpEvery) == 0) {
+        // LeiaSR: the weaver's input too, the full-resolution side-by-side pair
+        if (weave && m_leia.PairTexture()) DumpTexture(m_leia.PairTexture(), "pair");
         DumpBackBuffer();
     }
 
@@ -1740,25 +1742,29 @@ HRESULT Presenter::PresentFrame() {
 void Presenter::DumpBackBuffer() {
     ID3D11Texture2D* backBuffer = nullptr;
     if (FAILED(AcquireBackBuffer(&backBuffer))) return;
+    DumpTexture(backBuffer, "frame");
+    backBuffer->Release();
+}
+
+void Presenter::DumpTexture(ID3D11Texture2D* tex, const char* kind) {
     D3D11_TEXTURE2D_DESC sd{};
-    backBuffer->GetDesc(&sd);
+    tex->GetDesc(&sd);
     sd.Usage = D3D11_USAGE_STAGING;
     sd.BindFlags = 0;
     sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
     sd.MiscFlags = 0;
     ID3D11Texture2D* staging = nullptr;
     if (SUCCEEDED(m_device->CreateTexture2D(&sd, nullptr, &staging))) {
-        m_context->CopyResource(staging, backBuffer);
+        m_context->CopyResource(staging, tex);
         D3D11_MAPPED_SUBRESOURCE mapped{};
         if (SUCCEEDED(m_context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped))) {
             std::vector<uint8_t> pixels;
             ConvertToBgra(mapped, sd.Width, sd.Height, DXGI_FORMAT_B8G8R8A8_UNORM, pixels);
             m_context->Unmap(staging, 0);
-            SaveDump(pixels.data(), (int)sd.Width, (int)sd.Height);
+            SaveDump(pixels.data(), (int)sd.Width, (int)sd.Height, kind);
         }
         staging->Release();
     }
-    backBuffer->Release();
 }
 
 void Presenter::CleanupGraphics() {
@@ -1923,7 +1929,7 @@ static void SaveBmp(const char* path, const uint8_t* data, int w, int h) {
     fclose(f);
 }
 
-void Presenter::SaveDump(const uint8_t* data, int w, int h) {
+void Presenter::SaveDump(const uint8_t* data, int w, int h, const char* kind) {
     char module[MAX_PATH] = {};
     HMODULE self = nullptr;
     if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -1933,9 +1939,14 @@ void Presenter::SaveDump(const uint8_t* data, int w, int h) {
     char* slash = strrchr(module, '\\');
     if (slash) *slash = 0;
     char path[MAX_PATH];
-    sprintf_s(path, "%s\\rez3d_frame_%05u.bmp", module, m_dumpIndex++);
+    // Extra captures of the same frame (the LeiaSR pair) share its number
+    const bool frame = strcmp(kind, "frame") == 0;
+    sprintf_s(path, "%s\\rez3d_%s_%05u.bmp", module, kind, m_dumpIndex);
     SaveBmp(path, data, w, h);
-    m_dumpRemaining--;
+    if (frame) {
+        m_dumpIndex++;
+        m_dumpRemaining--;
+    }
     LogPrintf("Presenter: dumped %s", path);
 }
 

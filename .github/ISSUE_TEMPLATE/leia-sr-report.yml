@@ -89,4 +89,4 @@ body:
     id: notes
     attributes:
       label: Anything else
-      description: Separation/convergence you liked, alt-tab behaviour, captures (rez3d_frame_*.bmp), photos of the panel
+      description: Separation/convergence you liked, alt-tab behaviour, captures (rez3d_frame_*.bmp and rez3d_pair_*.bmp), photos of the panel

@@ -11,6 +11,13 @@ runtime composites them into your display's 3D format. No SteamVR, Oculus or
 headset is involved, and no game files are modified. Files are only added or
 swapped, with backups.
 
+![The white room from the intro, side-by-side 3D](docs/screenshots/intro-white-room-sbs.png)
+![Area 1, an enemy wave up close, side-by-side 3D](docs/screenshots/area1-wave-close-sbs.png)
+
+*The intro's white room and Area 1, at the default settings (separation 100 %,
+convergence 20). Full side-by-side, left eye on the left: view them on a 3D
+display or with the parallel free-viewing method.*
+
 > **Unofficial fan project.** Not affiliated with or endorsed by Enhance,
 > Monstars or Resonair. It contains no game code or assets: you need your own
 > copy of Rez Infinite (Steam or GOG).
@@ -137,7 +144,9 @@ and `rez3d_leia_sr.dll`, which the release installs next to the 3D runtime.
   in this mode.
 - Testers: `REZ3D_DISABLE_LEIA_WEAVE=1` forces the side-by-side fallback, and
   `LeiaWindow=own` hands the weaver the 3D view instead of the game window, if
-  the panel does not switch to 3D. `DumpFrames` captures the woven output.
+  the panel does not switch to 3D. `DumpFrames` captures the woven output
+  (`rez3d_frame_*.bmp`) and the full-resolution pair the weaver received
+  (`rez3d_pair_*.bmp`).
 
 **Status:** the fallback is verified, but the weave has not been tried on a
 panel yet. If you own an SR panel, please open a **Leia SR test report** issue

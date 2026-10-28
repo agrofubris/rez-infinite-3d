@@ -1,0 +1,8 @@
+build/
+xinput-proxy/build/
+dist/
+bin/
+*.log
+*.bmp
+rezpad.txt
+.vs/

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "leia_host.h"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -196,6 +197,7 @@ private:
     ID3D11ShaderResourceView* m_osdSrv = nullptr;
 
     HWND m_hwnd = nullptr;
+    LeiaSrHost m_leia;                   // Format=LeiaSR weaver and its textures
     HWND m_hostHwnd = nullptr;           // the game's window our 3D view sits inside (null: separate window)
     DWORD m_launcherPid = 0;             // Rez-infinite.exe, which owns the game's mono mirror window
     std::atomic<HWND> m_launcherHwnd{nullptr};

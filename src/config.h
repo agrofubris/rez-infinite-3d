@@ -4,7 +4,8 @@
 
 struct StereoConfig {
     std::string format = "SBS";     // SBS, SBS_Cross, TAB, TAB_Cross, Interlaced, Interlaced_Reversed,
-                                    // Checkerboard, Mono_Left, Mono_Right
+                                    // Checkerboard, Mono_Left, Mono_Right, LeiaSR
+    std::string leiaWindow = "top"; // LeiaSR: window handed to the weaver: top (the game's) or own
     int monitor = 0;                // 0-based index of display monitor
     int fullscreen = 1;             // borderless fullscreen on chosen monitor
     int vsync = 1;

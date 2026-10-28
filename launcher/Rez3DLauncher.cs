@@ -170,9 +170,9 @@ namespace Rez3D
             items.Add(new Item { Label = "play", Kind = Kind.Action, Run = Play,
                                  Help = "start rez infinite in stereoscopic 3d" });
             Choice("format", "Format",
-                   new[] { "Interlaced_Reversed", "Interlaced", "SBS", "SBS_Cross", "TAB", "TAB_Cross", "Checkerboard", "Mono_Left", "Mono_Right" },
-                   new[] { "interlaced reversed", "interlaced", "side by side", "side by side cross", "top and bottom", "top and bottom cross", "checkerboard", "mono left", "mono right" },
-                   "Interlaced_Reversed", "how both eyes are packed for your display. passive monitors: interlaced");
+                   new[] { "Interlaced_Reversed", "Interlaced", "SBS", "SBS_Cross", "TAB", "TAB_Cross", "Checkerboard", "LeiaSR", "Mono_Left", "Mono_Right" },
+                   new[] { "interlaced reversed", "interlaced", "side by side", "side by side cross", "top and bottom", "top and bottom cross", "checkerboard", "leia sr", "mono left", "mono right" },
+                   "Interlaced_Reversed", "how both eyes are packed for your display. passive monitors: interlaced. leia sr: needs the sr platform");
             Num("separation", "Separation", 0, 200, 5, 100, 0, " %",
                 "depth of distant objects. 100% = a real eye distance on your screen");
             Num("convergence", "Convergence", 1, 300, 1, 20, 1, " m",

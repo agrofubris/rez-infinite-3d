@@ -47,6 +47,7 @@ bool LoadConfig(const char* dllDir, StereoConfig& cfg) {
     auto getf = [&](const char* key, float def) { return (float)atof(get(key, std::to_string(def)).c_str()); };
 
     cfg.format = get("format", cfg.format);
+    cfg.leiaWindow = Lower(get("leiawindow", cfg.leiaWindow));
     cfg.monitor = geti("monitor", cfg.monitor);
     cfg.fullscreen = geti("fullscreen", cfg.fullscreen);
     cfg.vsync = geti("vsync", cfg.vsync);

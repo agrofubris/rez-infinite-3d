@@ -1,5 +1,8 @@
 build/
 xinput-proxy/build/
+leia/build/
+# The Leia SR SDK (via SR-lib) is never part of the repository
+third_party/
 dist/
 bin/
 *.log

@@ -36,8 +36,22 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
+## Leia SR (rez3d_leia_sr.dll only)
+
+The optional `rez3d_leia_sr.dll` is built against the Leia SR SDK 1.34.10
+through SR-lib. Neither is included in this repository, and the SR runtime DLLs
+are never shipped: they come with the user's SR Platform.
+
+- Leia SR SDK: Copyright 2025, Leia, Inc. The SDK's permission notice and the
+  third-party licences it lists are in `licenses/LeiaSR-SDK-License.txt`.
+- SR-lib: Copyright (c) Bo3b Johnson, MIT licence
+  (https://github.com/bo3b/SR-lib).
+
+The approach follows oneup03's RT64 3D work and bo3b's SR-lib.
+
 ## Trademarks
 
 Rez and Rez Infinite are trademarks of their respective owners (Enhance, Inc.).
+Leia, Simulated Reality and SR are trademarks of Leia, Inc.
 This project is an unofficial, fan-made add-on. It is not affiliated with or
 endorsed by Enhance, Monstars or Resonair, and it contains no game code or assets.

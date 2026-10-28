@@ -67,6 +67,7 @@ your controller.
 | 3D TV / projector, side-by-side | `SBS` |
 | 3D TV / projector, top-and-bottom | `TAB` |
 | DLP checkerboard | `Checkerboard` |
+| Leia SR glasses-free panel (Acer SpatialLabs, Samsung Odyssey 3D, ...) | `LeiaSR` |
 | Cross-eye free viewing | `SBS_Cross` |
 
 The output is borderless fullscreen at the monitor's native resolution, drawn
@@ -110,6 +111,27 @@ Each eye only gets every other row, and Rez is made of thin lines.
 Keep **field of view** at 90: Rez frames the avatar low in the view, and
 narrower values push it off the bottom of the screen.
 
+## Leia SR (glasses-free) panels
+
+`Format=LeiaSR` renders each eye at the panel's full resolution and hands the
+side-by-side pair to the SR runtime, which weaves it for the lenses and tracks
+your eyes. It needs the **SR Platform** installed (it comes with the display)
+and `rez3d_leia_sr.dll`, which the release installs next to the 3D runtime.
+
+- Without the SR Platform, or if anything in the weave fails, the game shows the
+  plain side-by-side image instead of a black screen. `REZ\rez3d.log` says why
+  ("Leia SR: ... presenting side-by-side").
+- Render scale applies per eye, so on a 4K panel each eye is already 3840x2160
+  at 1.0. Lower it if the frame rate drops.
+- Crosstalk cancellation and the interlace filter are for glasses and are off
+  in this mode.
+- Testers: `REZ3D_DISABLE_LEIA_WEAVE=1` forces the side-by-side fallback, and
+  `LeiaWindow=own` hands the weaver the 3D view instead of the game window, if
+  the panel does not switch to 3D. `DumpFrames` captures the woven output.
+
+**Status:** the fallback is verified, but the weave has not been tried on a
+panel yet. Reports from SR panel owners are very welcome.
+
 ## Controllers
 
 Rez only reads Xbox-style (XInput) pads. The included `xinput1_3.dll` also
@@ -140,6 +162,7 @@ OpenVR folder. The launcher covers the common ones. Others:
 | `VSync`, `FramePacing` | sync to the display; hold the game to its refresh like a VR compositor |
 | `FPS` | refresh rate reported to the game (0 = the monitor's) |
 | `UnmuteOnStart` | 1 = clear a mute Windows remembered for the game in the volume mixer |
+| `LeiaWindow` | Leia SR: `top` (the game's window, default) or `own` |
 | `MenuSeparation` | experimental: lower separation in detected menus (-1 = off; can misfire) |
 | `Tracking` | `mouse` = experimental mouse head-look |
 | `GpuComposite` | 0 = slower CPU fallback |
@@ -165,9 +188,18 @@ This builds the runtime, the controller bridge and the launcher, and writes
 `dist\rez-infinite-3d-0.1.0.zip`. `install.ps1` also works straight from a
 source build.
 
+The Leia SR loader (`leia/`, `rez3d_leia_sr.dll`) also needs a checkout of
+[SR-lib](https://github.com/bo3b/SR-lib) on branch `api_expansion`, commit
+`0c80cc01f671e1491ea70f8f9c2358ff938a6503`, which vendors the Leia SR SDK
+1.34.10. Pass it with `-SrLib <path>`, set `REZ3D_SRLIB`, or put it in
+`third_party\SR-lib`. It is never committed. Without it the build skips the
+loader, and `Format=LeiaSR` falls back to side-by-side. The loader delay-loads
+every SR DLL, so it loads on machines without the SR Platform.
+
 Layout: `src/` holds the VR runtime and 3D compositor (D3D11, shared textures,
 HLSL composite), `xinput-proxy/` the controller bridge, `launcher/` the
-settings screen (C#), and `vendor/` the OpenVR 1.0.2 C API header.
+settings screen (C#), `leia/` the optional Leia SR loader, and `vendor/` the
+OpenVR 1.0.2 C API header.
 
 Testing without taking over your screen: `build\tools\RunHidden.exe 30
 "<game>\Rez-infinite.exe" vr=1` runs the game on a hidden Windows desktop,

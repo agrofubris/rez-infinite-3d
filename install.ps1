@@ -23,6 +23,9 @@ function Find-Binary([string]$name, [string]$buildPath) {
 $shim = Find-Binary 'openvr_api.dll' 'build\Release\openvr_api.dll'
 $pad = Find-Binary 'xinput1_3.dll' 'xinput-proxy\build\Release\xinput1_3.dll'
 $launcher = Find-Binary 'Rez3D.exe' 'build\launcher\Rez3D.exe'
+# Optional: the Leia SR weave (Format=LeiaSR), absent from builds without the SDK
+$leia = $null
+try { $leia = Find-Binary 'rez3d_leia_sr.dll' 'leia\build\Release\rez3d_leia_sr.dll' } catch {}
 $ini = Join-Path $src 'rez3d.ini'
 
 # What this installer touched, for uninstall.ps1: "added|<path>" or "replaced|<path>"
@@ -68,12 +71,14 @@ function Install-Ini([string]$dir) {
 $rez = Join-Path $GameRoot 'REZ'
 Install-File $shim (Join-Path $rez 'openvr_api.dll')
 Install-File $pad (Join-Path $rez 'xinput1_3.dll')
+if ($leia) { Install-File $leia (Join-Path $rez 'rez3d_leia_sr.dll') }
 Install-Ini $rez
 
 # Area X (UE4)
 $axdir = Join-Path $GameRoot 'AX\Engine\Binaries\ThirdParty\OpenVR\OpenVRv1_0_2\Win64'
 if (Test-Path $axdir) {
     Install-File $shim (Join-Path $axdir 'openvr_api.dll')
+    if ($leia) { Install-File $leia (Join-Path $axdir 'rez3d_leia_sr.dll') }
     Install-Ini $axdir
 }
 $axbin = Join-Path $GameRoot 'AX\REZAX\Binaries\Win64'

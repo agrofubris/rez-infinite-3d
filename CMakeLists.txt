@@ -11,6 +11,7 @@ add_library(openvr_api SHARED
     src/config.cpp
     src/log.cpp
     src/audio.cpp
+    src/leia_host.cpp
 )
 
 target_include_directories(openvr_api PRIVATE src vendor)

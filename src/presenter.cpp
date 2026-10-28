@@ -25,7 +25,8 @@ enum StereoFormat {
     FMT_INTERLACED_REVERSED,
     FMT_CHECKERBOARD,
     FMT_MONO_LEFT,
-    FMT_MONO_RIGHT
+    FMT_MONO_RIGHT,
+    FMT_LEIA_SR  // full-resolution side-by-side pair, woven by the Leia SR runtime
 };
 
 static const char* kCompositeHlsl = R"(
@@ -224,6 +225,7 @@ static int ParseFormat(const std::string& s) {
     if (v == "checkerboard" || v == "checker") return FMT_CHECKERBOARD;
     if (v == "mono" || v == "mono_left" || v == "mono-left") return FMT_MONO_LEFT;
     if (v == "mono_right" || v == "mono-right") return FMT_MONO_RIGHT;
+    if (v == "leiasr" || v == "leia_sr" || v == "leia-sr" || v == "leia" || v == "sr") return FMT_LEIA_SR;
     return FMT_SBS;
 }
 
@@ -1376,6 +1378,16 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
     D3D11_TEXTURE2D_DESC td{};
     ps.tex->GetDesc(&td);
     const float tw = (float)td.Width, th = (float)td.Height;
+
+    // Leia SR: each eye at full output resolution, side by side in a 2W x H pair
+    // that the SR runtime weaves. Whenever it can't, plain side-by-side is shown.
+    const bool leiaMode = m_format == FMT_LEIA_SR;
+    HWND leiaWindow = m_hwnd;
+    if (leiaMode && m_hwnd && m_cfg.leiaWindow != "own") leiaWindow = GetAncestor(m_hwnd, GA_ROOT);
+    const bool weave = leiaMode && m_leia.Ready(m_device, m_context, leiaWindow, m_outW, m_outH);
+    const int fmt = leiaMode ? FMT_SBS : m_format;
+    const int compW = weave ? (m_outW & ~1) * 2 : m_outW;
+    const int compH = weave ? (m_outH & ~1) : m_outH;
     CompositeParams p{};
     for (int e = 0; e < 2; e++) {
         // Eye e occupies the half [e*0.5, e*0.5+0.5] of the slot texture
@@ -1390,18 +1402,18 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
         p.clampRect[e][2] = (std::max)(p.rect[e][0], p.rect[e][2]) - 0.5f / tw;
         p.clampRect[e][3] = (std::max)(p.rect[e][1], p.rect[e][3]) - 0.5f / th;
     }
-    p.format = m_format;
-    p.outW = m_outW;
-    p.outH = m_outH;
+    p.format = fmt;
+    p.outW = compW;
+    p.outH = compH;
 
     {
         // Output pixels covered by one eye, and eye texels per output pixel
-        const bool sbs = m_format == FMT_SBS || m_format == FMT_SBS_CROSS;
-        const bool tab = m_format == FMT_TAB || m_format == FMT_TAB_CROSS;
-        const bool interlaced = m_format == FMT_INTERLACED || m_format == FMT_INTERLACED_REVERSED;
-        const bool checker = m_format == FMT_CHECKERBOARD;
-        const float regionW = (float)(sbs ? m_outW / 2 : m_outW);
-        const float regionH = (float)(tab ? m_outH / 2 : m_outH);
+        const bool sbs = fmt == FMT_SBS || fmt == FMT_SBS_CROSS;
+        const bool tab = fmt == FMT_TAB || fmt == FMT_TAB_CROSS;
+        const bool interlaced = fmt == FMT_INTERLACED || fmt == FMT_INTERLACED_REVERSED;
+        const bool checker = fmt == FMT_CHECKERBOARD;
+        const float regionW = (float)(sbs ? compW / 2 : compW);
+        const float regionH = (float)(tab ? compH / 2 : compH);
         const float texPerOutX = 0.5f * tw * fabsf(bounds[0].uMax - bounds[0].uMin) / regionW;
         const float texPerOutY = th * fabsf(bounds[0].vMax - bounds[0].vMin) / regionH;
         const float decX = checker ? 1.41f : 1.0f;
@@ -1425,8 +1437,9 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
         p.filt[2] = (float)taps(hx, texPerOutX);
         p.filt[3] = (float)taps(hy, texPerOutY);
     }
-    p.color[0] = m_crosstalk.load();
-    p.color[1] = m_cfg.crosstalkLift;
+    // Crosstalk cancellation is for glasses; an SR panel handles its own
+    p.color[0] = leiaMode ? 0.0f : m_crosstalk.load();
+    p.color[1] = leiaMode ? 0.0f : m_cfg.crosstalkLift;
     p.color[2] = m_cfg.brightness > 0.0f ? m_cfg.brightness : 1.0f;
     p.color[3] = m_cfg.gamma > 0.0f ? m_cfg.gamma : 1.0f;
     float osdAlpha = 0.0f;
@@ -1444,19 +1457,23 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
     }
 
     if (ps.mutex->AcquireSync(0, 100) != S_OK) return;
-    m_context->UpdateSubresource(m_cb, 0, nullptr, &p, 0, 0);
-    D3D11_VIEWPORT vp{ 0.0f, 0.0f, (float)m_outW, (float)m_outH, 0.0f, 1.0f };
-    m_context->OMSetRenderTargets(1, &m_rtv, nullptr);
-    m_context->RSSetViewports(1, &vp);
-    m_context->IASetInputLayout(nullptr);
-    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    m_context->VSSetShader(m_vs, nullptr, 0);
-    m_context->PSSetShader(m_ps, nullptr, 0);
-    m_context->PSSetConstantBuffers(0, 1, &m_cb);
-    m_context->PSSetSamplers(0, 1, &m_sampler);
-    ID3D11ShaderResourceView* srvs[2] = { ps.srv, m_osdSrv };
-    m_context->PSSetShaderResources(0, 2, srvs);
-    m_context->Draw(3, 0);
+    // Draws both eyes into target with the current params
+    auto composite = [&](ID3D11RenderTargetView* target, int w, int h) {
+        m_context->UpdateSubresource(m_cb, 0, nullptr, &p, 0, 0);
+        D3D11_VIEWPORT vp{ 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
+        m_context->OMSetRenderTargets(1, &target, nullptr);
+        m_context->RSSetViewports(1, &vp);
+        m_context->IASetInputLayout(nullptr);
+        m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        m_context->VSSetShader(m_vs, nullptr, 0);
+        m_context->PSSetShader(m_ps, nullptr, 0);
+        m_context->PSSetConstantBuffers(0, 1, &m_cb);
+        m_context->PSSetSamplers(0, 1, &m_sampler);
+        ID3D11ShaderResourceView* srvs[2] = { ps.srv, m_osdSrv };
+        m_context->PSSetShaderResources(0, 2, srvs);
+        m_context->Draw(3, 0);
+    };
+    composite(weave ? m_leia.PairRtv() : m_rtv, compW, compH);
     if (m_psAnalyze && m_cfg.menuSeparation >= 0.0f && (m_anaFrame++ % 6) == 0) {
         D3D11_VIEWPORT av{ 0.0f, 0.0f, 320.0f, 45.0f, 0.0f, 1.0f };
         m_context->OMSetRenderTargets(1, &m_anaRtv, nullptr);
@@ -1466,6 +1483,23 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
         m_context->CopyResource(m_anaStaging[m_anaWrite], m_anaTex);
         m_anaWrite = (m_anaWrite + 1) % 3;
         if (m_anaPending < 3) m_anaPending++;
+    }
+    if (weave) {
+        // Last, because the weaver leaves its own pipeline state behind (WeaveInto
+        // resets it). The weaver samples the pair, so it is no longer a target.
+        m_context->OMSetRenderTargets(0, nullptr, nullptr);
+        ID3D11Texture2D* backBuffer = nullptr;
+        bool woven = false;
+        if (SUCCEEDED(AcquireBackBuffer(&backBuffer))) {
+            woven = m_leia.WeaveInto(m_context, backBuffer);
+            backBuffer->Release();
+        }
+        if (!woven) {
+            // A failed weave must not blank the screen: plain side-by-side instead
+            p.outW = m_outW;
+            p.outH = m_outH;
+            composite(m_rtv, m_outW, m_outH);
+        }
     }
     ID3D11ShaderResourceView* nullSrvs[2] = {};
     m_context->PSSetShaderResources(0, 2, nullSrvs);
@@ -1728,6 +1762,7 @@ void Presenter::DumpBackBuffer() {
 }
 
 void Presenter::CleanupGraphics() {
+    m_leia.Release();  // the weaver goes before the device and the textures it sampled
     for (auto& st : m_anaStaging) SafeRelease(st);
     SafeRelease(m_anaRtv);
     SafeRelease(m_anaTex);
@@ -1784,7 +1819,8 @@ void Presenter::Composite(uint8_t* dst, UINT dstPitch) {
     const uint8_t* eye1 = m_localEye[1].data();
     const EyeBounds b0 = m_localBounds[0];
     const EyeBounds b1 = m_localBounds[1];
-    const int fmt = m_format;
+    // The CPU fallback has no weaver: Leia SR shows plain side-by-side
+    const int fmt = m_format == FMT_LEIA_SR ? FMT_SBS : m_format;
 
     auto fetchEye = [&](int e, float u, float v, uint8_t out[4]) {
         const EyeBounds& b = (e == 0) ? b0 : b1;

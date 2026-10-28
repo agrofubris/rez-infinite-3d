@@ -15,6 +15,18 @@ swapped, with backups.
 > Monstars or Resonair. It contains no game code or assets: you need your own
 > copy of Rez Infinite (Steam or GOG).
 
+## Requirements
+
+- **A purchased copy of Rez Infinite from Steam or GOG**, installed by the
+  store's own client. The Steam version needs Steam running and checks
+  ownership as usual.
+- Windows 10 or 11, a DirectX 11 GPU, and a 3D display (or Leia SR panel).
+
+This add-on doesn't modify, bypass or replace any DRM or Steam file. It only
+swaps the game's VR runtime (`openvr_api.dll`) and adds a controller DLL.
+Modified or unofficial copies of the game are not supported, and reports from
+them will be closed.
+
 ## Status: beta
 
 Developed and tested on Rez Infinite **version 2.9** (2018 build), classic Rez.

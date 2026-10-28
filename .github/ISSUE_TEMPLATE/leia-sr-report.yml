@@ -20,13 +20,29 @@ body:
     attributes:
       label: SR Platform version
       description: From the SR Platform / SpatialLabs app
-  - type: input
-    id: game
+  - type: dropdown
+    id: store
     attributes:
-      label: Game version and store
-      description: version.txt in the game folder, and Steam or GOG
+      label: Store
+      options:
+        - Steam
+        - GOG
     validations:
       required: true
+  - type: input
+    id: version
+    attributes:
+      label: Game version
+      description: The number in version.txt in the game folder
+    validations:
+      required: true
+  - type: checkboxes
+    id: own-copy
+    attributes:
+      label: Your copy
+      options:
+        - label: I installed Rez Infinite 3D onto my own purchased copy, installed by the Steam or GOG client
+          required: true
   - type: dropdown
     id: lens
     attributes:

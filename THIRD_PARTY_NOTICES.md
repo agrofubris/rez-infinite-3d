@@ -51,7 +51,8 @@ The approach follows oneup03's RT64 3D work and bo3b's SR-lib.
 
 ## Trademarks
 
-Rez and Rez Infinite are trademarks of their respective owners (Enhance, Inc.).
-Leia, Simulated Reality and SR are trademarks of Leia, Inc.
-This project is an unofficial, fan-made add-on. It is not affiliated with or
-endorsed by Enhance, Monstars or Resonair, and it contains no game code or assets.
+Rez and Rez Infinite are trademarks of their respective owners. SEGA is a
+trademark of SEGA Corporation. Leia, Simulated Reality and SR are trademarks of
+Leia, Inc. This project is an unofficial, fan-made add-on. It is not affiliated
+with or endorsed by SEGA, Enhance, Monstars, Resonair or Leia, and it contains
+no game code or assets.

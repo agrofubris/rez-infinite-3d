@@ -18,9 +18,9 @@ swapped, with backups.
 convergence 20). Full side-by-side, left eye on the left: view them on a 3D
 display or with the parallel free-viewing method.*
 
-> **Unofficial fan project.** Not affiliated with or endorsed by Enhance,
-> Monstars or Resonair. It contains no game code or assets: you need your own
-> copy of Rez Infinite (Steam or GOG).
+> **Unofficial fan project.** Not affiliated with or endorsed by SEGA, Enhance,
+> Monstars, Resonair or Leia. It contains no game code or assets: you need your
+> own copy of Rez Infinite (Steam or GOG). See [Credits](#credits).
 
 ## Requirements
 

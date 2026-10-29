@@ -87,6 +87,9 @@ private:
                       const D3D11_TEXTURE2D_DESC& desc, const EyeBounds& bounds);
     void UpdateOsdTexture(float& alpha);
     void DumpBackBuffer();
+    bool DumpDue();
+    void MatchWindowSize();
+    void LogLeiaGeometry(HWND weaverWindow);
     void DumpTexture(ID3D11Texture2D* tex, const char* kind);
     void RunMenuAnalysis();
     void AnalyzeEyes(const uint8_t* data, UINT pitch);
@@ -215,6 +218,8 @@ private:
     int m_dumpRemaining = 0;
     int m_dumpAfter = 0;
     int m_dumpEvery = 1;
+    ULONGLONG m_dumpStartTick = 0;
+    int m_dumpsTimed = 0;
     unsigned long long m_framesSeen = 0;
     unsigned m_dumpIndex = 0;
     UINT m_dynamicW = 0, m_dynamicH = 0;

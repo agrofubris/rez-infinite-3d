@@ -1508,8 +1508,7 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
     RunMenuAnalysis();
 
     m_framesSeen++;
-    if (m_dumpRemaining > 0 && m_framesSeen > (unsigned long long)m_dumpAfter &&
-        ((m_framesSeen - (unsigned long long)m_dumpAfter) % (unsigned long long)m_dumpEvery) == 0) {
+    if (DumpDue()) {
         // LeiaSR: the weaver's input too, the full-resolution side-by-side pair
         if (weave && m_leia.PairTexture()) DumpTexture(m_leia.PairTexture(), "pair");
         DumpBackBuffer();
@@ -1737,6 +1736,24 @@ HRESULT Presenter::PresentFrame() {
             Sleep((DWORD)(wait100ns / 10000));
     }
     return S_OK;
+}
+
+// DumpAfter/DumpEvery count presented frames. DumpAfterSec/DumpEverySec count
+// seconds since the first frame instead, which stays on time when the machine is
+// busy and the game runs below the display rate.
+bool Presenter::DumpDue() {
+    if (m_dumpRemaining <= 0) return false;
+    if (m_cfg.dumpAfterSec > 0.0f) {
+        const ULONGLONG now = GetTickCount64();
+        if (!m_dumpStartTick) m_dumpStartTick = now;
+        const double t = (now - m_dumpStartTick) / 1000.0;
+        const double every = m_cfg.dumpEverySec > 0.0f ? m_cfg.dumpEverySec : 1.0;
+        if (t < m_cfg.dumpAfterSec + m_dumpsTimed * every) return false;
+        m_dumpsTimed++;
+        return true;
+    }
+    return m_framesSeen > (unsigned long long)m_dumpAfter &&
+           ((m_framesSeen - (unsigned long long)m_dumpAfter) % (unsigned long long)m_dumpEvery) == 0;
 }
 
 void Presenter::DumpBackBuffer() {
@@ -1978,8 +1995,7 @@ void Presenter::PresentLatest() {
     Composite(m_cpuImage.data(), (UINT)m_outW * 4);
 
     m_framesSeen++;
-    if (m_dumpRemaining > 0 && m_framesSeen > (unsigned long long)m_dumpAfter &&
-        ((m_framesSeen - (unsigned long long)m_dumpAfter) % (unsigned long long)m_dumpEvery) == 0) {
+    if (DumpDue()) {
         SaveDump(m_cpuImage.data(), m_outW, m_outH);
     }
 

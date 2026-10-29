@@ -176,11 +176,13 @@ namespace Rez3D
             Num("separation", "Separation", 0, 200, 5, 100, 0, " %",
                 "depth of distant objects. 100% = a real eye distance on your screen");
             Num("convergence", "Convergence", 1, 300, 1, 20, 1, " m",
-                "distance placed on the screen. ~20 keeps the avatar on the screen, higher pops out");
+                "rez: distance placed on the screen. ~20 keeps the avatar on the screen, higher pops out");
+            Num("area x convergence", "AreaXConvergence", 0.5, 50, 0.1, 3, 1, " m",
+                "area x is built closer: ~3 puts the crosshair on the screen, everything else behind it");
             Num("menu separation", "MenuSeparation", -5, 200, 5, -5, 0, " %",
                 "experimental: lower depth in detected menus. can misfire in sparse gameplay");
-            Num("field of view", "FovH", 60, 110, 5, 90, 0, "°",
-                "horizontal view angle. below 90 the avatar starts to leave the bottom of the screen");
+            Num("field of view", "FovH", 60, 110, 5, 85, 0, "°",
+                "horizontal view angle. 85 with lens shift 7 frames the avatar like the original game");
             Num("render scale", "RenderScale", 0.5, 2.0, 0.25, 1.5, 2, "x",
                 "per eye resolution. above 1 = supersampling, less shimmer on thin lines");
             Num("interlace filter", "InterlaceFilter", 0, 1, 0.25, 0.5, 2, "",
@@ -273,6 +275,7 @@ namespace Rez3D
             {
                 double step = it.Step;
                 if (it.Key == "Convergence") step = it.Num < 10 ? 0.5 : (it.Num < 50 ? 1 : 5);
+                if (it.Key == "AreaXConvergence") step = it.Num < 5 ? 0.1 : 0.5;
                 double v = Math.Round((it.Num + dir * step) / step) * step;
                 it.Num = Math.Max(it.Min, Math.Min(it.Max, Math.Round(v, 4)));
             }

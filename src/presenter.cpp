@@ -578,7 +578,8 @@ void Presenter::CreateWindowOnMonitor() {
     // "RezWIN", which the launcher embeds in its fullscreen window) as a child
     // surface covering it. Alt+Tab, focus and Alt+F4 then stay the game's own.
     HWND host = nullptr;
-    for (int i = 0; i < 50 && !host && !m_exit; i++) {
+    // Area X's window appears (and is embedded by the launcher) a few seconds after VR init
+    for (int i = 0; i < 200 && !host && !m_exit; i++) {
         host = FindGameWindow();
         if (!host) Sleep(100);
     }
@@ -1174,8 +1175,10 @@ void Presenter::CheckWindowOrder() {
     prev = ctx.text;
 }
 
-// The game's own visible window: REZ.exe's RezWIN, embedded in the launcher's
-// window, or a top-level window of this process when started without it.
+// The game's own visible window: REZ.exe's RezWIN or Area X's UnrealWindow,
+// embedded in the launcher's window, or a top-level window of this process when
+// started without it. Area X is started by REZ.exe, which then exits, so the
+// launcher isn't always our parent: any top-level window hosting one of ours counts.
 HWND Presenter::FindGameWindow() {
     struct Ctx { DWORD self, launcher; HWND best; LONG area; } ctx{ GetCurrentProcessId(), m_launcherPid, nullptr, 0 };
     EnumWindows([](HWND h, LPARAM lp) -> BOOL {
@@ -1197,7 +1200,7 @@ HWND Presenter::FindGameWindow() {
             return TRUE;
         };
         if (pid == c->self) consider(h, lp);
-        else if (c->launcher && pid == c->launcher) EnumChildWindows(h, consider, lp);
+        else EnumChildWindows(h, consider, lp);
         return TRUE;
     }, (LPARAM)&ctx);
     return ctx.area >= 640 * 360 ? ctx.best : nullptr;

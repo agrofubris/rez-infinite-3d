@@ -35,7 +35,8 @@ swaps the game's VR runtime (`openvr_api.dll`) and adds a controller DLL.
 ## Status: beta
 
 Developed and tested on Rez Infinite **version 2.9** (2018 build), classic Rez.
-Area X uses the same runtime but has had less testing. Reports for current Steam
+Area X runs in 3D since v0.3.0 (before that it couldn't start in VR mode: a
+black screen) but has had less testing. Reports for current Steam
 and GOG builds are very welcome. Please open an issue with your store, game
 version (`version.txt` in the game folder) and `REZ\rez3d.log`.
 
@@ -221,7 +222,10 @@ OpenVR folder. The launcher covers the common ones. Others:
   They sit far behind the screen at full separation.
 - The HUD (reticle, lock-on markers) lives in the 3D scene, so it moves in
   depth with everything else.
-- Area X is less tested.
+- Area X is less tested. In one test it ran out of enemies after a few
+  minutes. Area X may expect you to turn your head as in VR, and the view here
+  always looks ahead; `Tracking=mouse` in Area X's `rez3d.ini` lets you look
+  around with the mouse (experimental) while this is investigated.
 
 ## Building from source
 

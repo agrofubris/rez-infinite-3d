@@ -15,8 +15,12 @@ struct StereoConfig {
     float separation = 100.0f;
     float menuSeparation = -1.0f;   // experimental: separation while a menu is detected (-1 = off)
     float convergence = 20.0f;     // the avatar flies ~19 m ahead: put it on the screen plane
+    // Area X is built at a closer scale (crosshair ~3 m, avatar ~9 m ahead) and reads
+    // its own key, AreaXConvergence, so one ini can serve both games.
+    bool areaX = false;             // running inside Area X (REZAX)
+    float areaXConvergence = 3.0f;  // puts the crosshair on the screen plane
     int screenWidthMM = 0;          // physical screen width (0 = from EDID)
-    float fovH = 90.0f;             // horizontal FOV; Rez frames the avatar below centre, narrower crops it
+    float fovH = 85.0f;             // horizontal FOV (with LensShift 7 it frames like the original)
     float renderScale = 1.0f;       // eye render resolution relative to output resolution (up to 2 = supersampling)
     float interlaceFilter = 0.5f;   // vertical filter for row/column-decimating formats (0 = off, 1 = softest)
     float crosstalk = 0.0f;         // fraction of the other eye leaking through the glasses (0 = off)
@@ -57,4 +61,6 @@ struct StereoConfig {
 bool LoadConfig(const char* dllDir, StereoConfig& cfg);
 
 // Writes Separation/Convergence back into rez3d.ini, keeping everything else.
-bool SaveStereoSettings(const char* dllDir, float separation, float convergence, float crosstalk);
+// convergenceKey: "Convergence", or "AreaXConvergence" inside Area X.
+bool SaveStereoSettings(const char* dllDir, float separation, float convergence, float crosstalk,
+                        const char* convergenceKey = "Convergence");

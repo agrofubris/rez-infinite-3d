@@ -501,7 +501,8 @@ static void PollHotkeys() {
 
     bool f7 = down(VK_F7);
     if (f7 && !wasF7) {
-        bool ok = SaveStereoSettings(g_dllDir, g_cfg.separation, g_cfg.convergence, g_cfg.crosstalk);
+        bool ok = SaveStereoSettings(g_dllDir, g_cfg.separation, g_cfg.convergence, g_cfg.crosstalk,
+                                     g_cfg.areaX ? "AreaXConvergence" : "Convergence");
         LogPrintf("Stereo: saved separation=%.1f%% convergence=%.3f (%s)", g_cfg.separation, g_cfg.convergence,
                   ok ? "ok" : "failed");
         ShowStereoOsd(ok ? "   SAVED" : "   SAVE FAILED");
@@ -594,12 +595,12 @@ static void InitRuntimeConfig() {
     LogPrintf("=== Rez3D shim init (presenter=%d) ===", g_noPresenter ? 0 : 1);
     LogPrintf("DLL dir: %s", g_dllDir);
     LogPrintf("Config: format=%s monitor=%d fullscreen=%d vsync=%d separation=%.1f%% convergence=%.3f fovH=%.1f "
-              "renderScale=%.2f tracking=%s fps=%d pacing=%d gpu=%d",
+              "renderScale=%.2f tracking=%s fps=%d pacing=%d gpu=%d game=%s",
               g_cfg.format.c_str(), g_cfg.monitor, g_cfg.fullscreen, g_cfg.vsync, g_cfg.separation, g_cfg.convergence,
               g_cfg.fovH, g_cfg.renderScale, g_cfg.tracking.c_str(), g_cfg.fps, g_cfg.framePacing,
-              g_cfg.gpuComposite);
-    LogPrintf("Eye render target: %ux%u (output %dx%d), tanH=%.4f tanV=%.4f", g_eyeW, g_eyeH, outW, outH, g_tanH,
-              g_tanV);
+              g_cfg.gpuComposite, g_cfg.areaX ? "Area X (AreaXConvergence)" : "Rez");
+    LogPrintf("Eye render target: %ux%u (output %dx%d), tanH=%.4f tanV=%.4f lensShift=%.1f%%", g_eyeW, g_eyeH, outW,
+              outH, g_tanH, g_tanV, g_cfg.lensShift);
 
     Presenter::Get().Configure(g_cfg);
     // Test runs stay silent; normal launches undo any mute left from the mixer or a test
@@ -1213,6 +1214,57 @@ static EVRApplicationError __stdcall Apps_GetStartingApplication(char* buf, uint
     return VRApplicationError_None;
 }
 
+// In VR mode Rez starts Area X through the VR runtime: SteamVR's LaunchInternalProcess
+// runs the binary as part of the same application, and the caller exits right after.
+// Without this the request vanished, Rez quit, and nothing started (a black screen).
+static EVRApplicationError __stdcall Apps_LaunchInternalProcess(char* binary, char* args, char* workDir) {
+    LogPrintf("apps.LaunchInternalProcess binary='%s' args='%s' dir='%s'", binary ? binary : "(null)",
+              args ? args : "(null)", workDir ? workDir : "(null)");
+    if (!binary || !binary[0]) return EVRApplicationError_VRApplicationError_InvalidParameter;
+    std::string dir = workDir && workDir[0] ? workDir : "";
+    if (dir.empty()) {
+        // SteamVR: no working directory means the binary's own
+        dir = binary;
+        size_t slash = dir.find_last_of("\\/");
+        dir = slash == std::string::npos ? std::string() : dir.substr(0, slash);
+    }
+    std::string cmd = std::string("\"") + binary + "\"";
+    if (args && args[0]) cmd += std::string(" ") + args;
+    STARTUPINFOA si{ sizeof(si) };
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessA(binary, &cmd[0], nullptr, nullptr, FALSE, 0, nullptr, dir.empty() ? nullptr : dir.c_str(),
+                        &si, &pi)) {
+        LogPrintf("apps.LaunchInternalProcess: CreateProcess failed, err=%lu", GetLastError());
+        return EVRApplicationError_VRApplicationError_LaunchFailed;
+    }
+    LogPrintf("apps.LaunchInternalProcess: started pid %lu", pi.dwProcessId);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return VRApplicationError_None;
+}
+
+// The other ways to start an application have no meaning without SteamVR; log
+// them so a request Rez makes through one of them shows up in rez3d.log.
+static EVRApplicationError __stdcall Apps_LaunchApplication(char* key) {
+    LogPrintf("apps.LaunchApplication key='%s' (not supported)", key ? key : "(null)");
+    return EVRApplicationError_VRApplicationError_UnknownApplication;
+}
+static EVRApplicationError __stdcall Apps_LaunchTemplateApplication(char* key, char* newKey, AppOverrideKeys_t*,
+                                                                    uint32_t) {
+    LogPrintf("apps.LaunchTemplateApplication key='%s' new='%s' (not supported)", key ? key : "(null)",
+              newKey ? newKey : "(null)");
+    return EVRApplicationError_VRApplicationError_UnknownApplication;
+}
+static EVRApplicationError __stdcall Apps_LaunchApplicationFromMimeType(char* mime, char* args) {
+    LogPrintf("apps.LaunchApplicationFromMimeType mime='%s' args='%s' (not supported)", mime ? mime : "(null)",
+              args ? args : "(null)");
+    return EVRApplicationError_VRApplicationError_UnknownApplication;
+}
+static EVRApplicationError __stdcall Apps_IdentifyApplication(uint32_t pid, char* key) {
+    LogPrintf("apps.IdentifyApplication pid=%u key='%s'", pid, key ? key : "(null)");
+    return VRApplicationError_None;
+}
+
 static EVRRenderModelError __stdcall Models_LoadRenderModelAsync(char*, RenderModel_t**) {
     return VRRenderModelError_Loading;
 }
@@ -1365,19 +1417,19 @@ static void InitTables() {
     g_comp016.LockGLSharedTextureForAccess = Comp_LockGLSharedTextureForAccess;
     g_comp016.UnlockGLSharedTextureForAccess = Comp_UnlockGLSharedTextureForAccess;
 
-    // Applications (minimal stubs; Rez does not need app management)
+    // Applications: stubs, except the launches (Rez starts Area X through the runtime)
     g_apps.AddApplicationManifest = (decltype(g_apps.AddApplicationManifest))StubZero;
     g_apps.RemoveApplicationManifest = (decltype(g_apps.RemoveApplicationManifest))StubZero;
     g_apps.IsApplicationInstalled = (decltype(g_apps.IsApplicationInstalled))StubZero;
     g_apps.GetApplicationCount = (decltype(g_apps.GetApplicationCount))StubZero;
     g_apps.GetApplicationKeyByIndex = (decltype(g_apps.GetApplicationKeyByIndex))StubZero;
     g_apps.GetApplicationKeyByProcessId = (decltype(g_apps.GetApplicationKeyByProcessId))StubZero;
-    g_apps.LaunchApplication = (decltype(g_apps.LaunchApplication))StubZero;
-    g_apps.LaunchTemplateApplication = (decltype(g_apps.LaunchTemplateApplication))StubZero;
-    g_apps.LaunchApplicationFromMimeType = (decltype(g_apps.LaunchApplicationFromMimeType))StubZero;
+    g_apps.LaunchApplication = Apps_LaunchApplication;
+    g_apps.LaunchTemplateApplication = Apps_LaunchTemplateApplication;
+    g_apps.LaunchApplicationFromMimeType = Apps_LaunchApplicationFromMimeType;
     g_apps.LaunchDashboardOverlay = (decltype(g_apps.LaunchDashboardOverlay))StubZero;
     g_apps.CancelApplicationLaunch = (decltype(g_apps.CancelApplicationLaunch))StubZero;
-    g_apps.IdentifyApplication = (decltype(g_apps.IdentifyApplication))StubZero;
+    g_apps.IdentifyApplication = Apps_IdentifyApplication;
     g_apps.GetApplicationProcessId = (decltype(g_apps.GetApplicationProcessId))StubZero;
     g_apps.GetApplicationsErrorNameFromEnum = (decltype(g_apps.GetApplicationsErrorNameFromEnum))StubEmptyString;
     g_apps.GetApplicationPropertyString = (decltype(g_apps.GetApplicationPropertyString))StubZero;
@@ -1396,7 +1448,7 @@ static void InitTables() {
     g_apps.GetApplicationsTransitionStateNameFromEnum =
         (decltype(g_apps.GetApplicationsTransitionStateNameFromEnum))StubEmptyString;
     g_apps.IsQuitUserPromptRequested = (decltype(g_apps.IsQuitUserPromptRequested))StubZero;
-    g_apps.LaunchInternalProcess = (decltype(g_apps.LaunchInternalProcess))StubZero;
+    g_apps.LaunchInternalProcess = Apps_LaunchInternalProcess;
 
     // Render models
     g_models.LoadRenderModel_Async = Models_LoadRenderModelAsync;

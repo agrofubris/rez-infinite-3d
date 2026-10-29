@@ -432,6 +432,19 @@ extern "C" DWORD WINAPI XInputGetState(DWORD index, XINPUT_STATE* state) noexcep
 
     static LONG s_firstCalls = 0;
     if (InterlockedIncrement(&s_firstCalls) <= 4) Log("XInputGetState(%lu) real=%lu", index, result);
+    {
+        // How often the game polls pad 0 (first minute): tells "not polled" from "ignored"
+        static LONG s_polls = 0, s_reports = 0;
+        static DWORD s_since = 0;
+        if (index == 0) InterlockedIncrement(&s_polls);
+        DWORD t = GetTickCount();
+        if (!s_since) s_since = t;
+        if (t - s_since >= 5000 && s_reports < 12) {
+            s_reports++;
+            Log("pad 0 polled %ld times in %.1f s", InterlockedExchange(&s_polls, 0), (t - s_since) / 1000.0);
+            s_since = t;
+        }
+    }
 
     unsigned short vb = VirtualButtons();
     short lx, ly, rx, ry;

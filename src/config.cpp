@@ -24,6 +24,14 @@ bool LoadConfig(const char* dllDir, StereoConfig& cfg) {
     char path[MAX_PATH];
     sprintf_s(path, "%s\\rez3d.ini", dllDir);
 
+    {
+        char exe[MAX_PATH] = {};
+        GetModuleFileNameA(nullptr, exe, MAX_PATH);
+        const char* name = strrchr(exe, '\\');
+        cfg.areaX = _strnicmp(name ? name + 1 : exe, "REZAX", 5) == 0;
+        if (cfg.areaX) cfg.convergence = cfg.areaXConvergence;
+    }
+
     FILE* f = nullptr;
     fopen_s(&f, path, "r");
     if (!f) return false;
@@ -54,6 +62,8 @@ bool LoadConfig(const char* dllDir, StereoConfig& cfg) {
     cfg.separation = getf("separation", cfg.separation);
     cfg.menuSeparation = getf("menuseparation", cfg.menuSeparation);
     cfg.convergence = getf("convergence", cfg.convergence);
+    cfg.areaXConvergence = getf("areaxconvergence", cfg.areaXConvergence);
+    if (cfg.areaX) cfg.convergence = cfg.areaXConvergence;
     cfg.screenWidthMM = geti("screenwidthmm", cfg.screenWidthMM);
     cfg.framePacing = geti("framepacing", cfg.framePacing);
     cfg.gpuComposite = geti("gpucomposite", cfg.gpuComposite);
@@ -88,7 +98,8 @@ bool LoadConfig(const char* dllDir, StereoConfig& cfg) {
     return true;
 }
 
-bool SaveStereoSettings(const char* dllDir, float separation, float convergence, float crosstalk) {
+bool SaveStereoSettings(const char* dllDir, float separation, float convergence, float crosstalk,
+                        const char* convergenceKey) {
     char path[MAX_PATH];
     sprintf_s(path, "%s\\rez3d.ini", dllDir);
 
@@ -106,7 +117,7 @@ bool SaveStereoSettings(const char* dllDir, float separation, float convergence,
 
     char sep[64], conv[64], xt[64];
     sprintf_s(sep, "Separation=%.1f", separation);
-    sprintf_s(conv, "Convergence=%.3f", convergence);
+    sprintf_s(conv, "%s=%.3f", convergenceKey, convergence);
     sprintf_s(xt, "Crosstalk=%.3f", crosstalk);
     bool haveSep = false, haveConv = false, haveXt = false;
     for (auto& s : lines) {
@@ -117,7 +128,7 @@ bool SaveStereoSettings(const char* dllDir, float separation, float convergence,
         if (key == "separation") {
             s = sep;
             haveSep = true;
-        } else if (key == "convergence") {
+        } else if (key == Lower(convergenceKey)) {
             s = conv;
             haveConv = true;
         } else if (key == "crosstalk") {

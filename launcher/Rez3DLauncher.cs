@@ -99,7 +99,7 @@ namespace Rez3D
         int selected;
         string status = "";
         readonly Font titleFont, itemFont, smallFont;
-        readonly int rowH = 30, listTop = 150, valueX = 470;
+        readonly int rowH = 29, listTop = 150, valueX = 470;
         Point dragStart;
 
         // Gamepad: read through the game's own xinput1_3.dll proxy, so what the
@@ -112,7 +112,11 @@ namespace Rez3D
         static extern IntPtr LoadLibrary(string path);
         [DllImport("kernel32.dll", CharSet = CharSet.Ansi)]
         static extern IntPtr GetProcAddress(IntPtr module, string name);
+        [DllImport("kernel32.dll")]
+        static extern bool FreeLibrary(IntPtr module);
         XGetState padGet;
+        IntPtr padLib;            // the game's REZ\xinput1_3.dll, loaded to read the pad
+        bool padHooked;
         readonly Timer padTimer = new Timer { Interval = 30 };
         int padHeldDir;           // 1 up, 2 down, 3 left, 4 right
         DateTime padRepeatAt;
@@ -398,10 +402,12 @@ namespace Rez3D
             if (updateOnPlay)
             {
                 // Run from a build folder or a newer release: put this build in the game first
+                ReleasePad();
                 try { Installer.Install(gameRoot); updateOnPlay = false; }
                 catch (Exception e)
                 {
                     status = "could not update the game: " + e.Message.ToLowerInvariant();
+                    InitPad();
                     Invalidate();
                     return;
                 }
@@ -487,7 +493,7 @@ namespace Rez3D
                     using (var b = new SolidBrush(Orange)) g.FillRectangle(b, 46, y + 8, 6, 6);
             }
 
-            float by = ClientSize.Height - 96;
+            float by = ClientSize.Height - (gameRoot == null ? 96 : 118);
             using (var pen = new Pen(DimOrange, 1)) g.DrawLine(pen, 48, by - 12, ClientSize.Width - 48, by - 12);
             DrawSpaced(g, items[selected].Help ?? "", smallFont, Grey, 48, by, 1);
             if (gameRoot == null)
@@ -499,9 +505,12 @@ namespace Rez3D
             }
             DrawSpaced(g, "in game:  ctrl+f3/f4 separation   ctrl+f5/f6 convergence   ctrl+f9/f10 crosstalk",
                        smallFont, DimOrange, 48, by + 26, 1);
-            DrawSpaced(g, "ctrl+f7 save   ctrl+t stereo on/off   ctrl+alt+f4 force quit     " + status, smallFont, DimOrange, 48, by + 48, 1);
+            DrawSpaced(g, "ctrl+f7 save   ctrl+t stereo on/off   ctrl+alt+f4 force quit", smallFont, DimOrange, 48, by + 48, 1);
             DrawSpaced(g, padText, smallFont, padText.StartsWith("pad: press") || padText == "pad: ok" ? Grey : Color.White,
                        48, by + 74, 1);
+            // Status on its own line, white when something went wrong
+            bool problem = status.Contains("could not") || status.Contains("fail") || status.Contains("not found");
+            DrawSpaced(g, status, smallFont, problem ? Color.White : DimOrange, 48, by + 96, 1);
         }
 
         void InitPad()
@@ -509,15 +518,24 @@ namespace Rez3D
             try
             {
                 Environment.SetEnvironmentVariable("REZPAD_NO_KEYBOARD", "1");  // arrows are handled as keys here
-                var lib = LoadLibrary(Path.Combine(gameRoot, @"REZ\xinput1_3.dll"));
-                var fn = lib == IntPtr.Zero ? IntPtr.Zero : GetProcAddress(lib, "XInputGetState");
+                padLib = LoadLibrary(Path.Combine(gameRoot, @"REZ\xinput1_3.dll"));
+                var fn = padLib == IntPtr.Zero ? IntPtr.Zero : GetProcAddress(padLib, "XInputGetState");
                 if (fn == IntPtr.Zero) { padText = "pad: controller bridge not installed"; return; }
                 padGet = (XGetState)Marshal.GetDelegateForFunctionPointer(fn, typeof(XGetState));
                 padText = "pad: press any button on your controller to test it";
-                padTimer.Tick += (s, e) => PollPad();
+                if (!padHooked) { padTimer.Tick += (s, e) => PollPad(); padHooked = true; }
                 padTimer.Start();
             }
             catch (Exception e) { padText = "pad: " + e.Message.ToLowerInvariant(); }
+        }
+
+        // The pad is read through the game's own xinput1_3.dll, and Windows won't replace
+        // a DLL this process has loaded: let go of it while installing over the game
+        void ReleasePad()
+        {
+            padTimer.Stop();
+            padGet = null;
+            if (padLib != IntPtr.Zero) { FreeLibrary(padLib); padLib = IntPtr.Zero; }
         }
 
         void PollPad()
@@ -677,6 +695,13 @@ namespace Rez3D
 
         static string SelfPath { get { return System.Reflection.Assembly.GetExecutingAssembly().Location; } }
 
+        static bool SameBytes(byte[] a, byte[] b)
+        {
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
         // True when this exe runs from somewhere else than root\Rez3D.exe
         public static bool RunningOutside(string root)
         {
@@ -812,7 +837,8 @@ namespace Rez3D
                     entries.Add("replaced|" + rel(to));
                 }
                 else if (!known(to)) entries.Add("added|" + rel(to));
-                File.WriteAllBytes(to, data);
+                // Unchanged files stay untouched (one may be loaded by a running launcher or game)
+                if (!File.Exists(to) || !SameBytes(File.ReadAllBytes(to), data)) File.WriteAllBytes(to, data);
             };
             // Settings: an update keeps the player's own ini
             Action<string> settings = dir =>

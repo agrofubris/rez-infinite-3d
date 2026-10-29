@@ -1680,6 +1680,48 @@ static void* GetInterface(const char* name) {
     return fnTable ? table : object;
 }
 
+// Starts Rez3D.exe --watchdog (in the game root, above this DLL's folder): Ctrl+Alt+F4
+// and an automatic recovery end the game from anywhere, because Rez-infinite.exe's
+// topmost window and hidden taskbar can otherwise leave a hang with no way out. The
+// watchdog keeps one instance per session and exits with the game. Test runs on the
+// hidden desktop (REZ3D_MUTE) skip it unless REZ3D_WATCHDOG=1.
+static void StartWatchdog() {
+    static bool started = false;
+    if (started) return;
+    started = true;
+    char env[8] = {};
+    const bool test = GetEnvironmentVariableA("REZ3D_MUTE", env, sizeof(env)) > 0 && env[0] != '0';
+    env[0] = 0;
+    const bool forced = GetEnvironmentVariableA("REZ3D_WATCHDOG", env, sizeof(env)) > 0 && env[0] != '0';
+    if (test && !forced) return;
+    wchar_t dir[MAX_PATH] = {};
+    GetModuleFileNameW(g_hModule, dir, MAX_PATH);
+    for (int level = 0; level < 8; level++) {
+        wchar_t* slash = wcsrchr(dir, L'\\');
+        if (!slash) break;
+        *slash = 0;
+        wchar_t exe[MAX_PATH];
+        swprintf_s(exe, L"%s\\Rez3D.exe", dir);
+        if (GetFileAttributesW(exe) == INVALID_FILE_ATTRIBUTES) continue;
+        wchar_t cmd[MAX_PATH + 32];
+        swprintf_s(cmd, L"\"%s\" --watchdog", exe);
+        STARTUPINFOW si{ sizeof(si) };
+        PROCESS_INFORMATION pi{};
+        // Outside the game's job if allowed, so it survives whatever happens to the game
+        BOOL ok = CreateProcessW(exe, cmd, nullptr, nullptr, FALSE, CREATE_BREAKAWAY_FROM_JOB, nullptr, dir, &si, &pi);
+        if (!ok) ok = CreateProcessW(exe, cmd, nullptr, nullptr, FALSE, 0, nullptr, dir, &si, &pi);
+        if (ok) {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            LogPrintf("Watchdog: started (Ctrl+Alt+F4 ends the game from anywhere)");
+        } else {
+            LogPrintf("Watchdog: could not start %ls (err=%lu)", exe, GetLastError());
+        }
+        return;
+    }
+    LogPrintf("Watchdog: Rez3D.exe not found above the DLL folder");
+}
+
 extern "C" __declspec(dllexport) intptr_t VR_InitInternal(EVRInitError* peError, EVRApplicationType eType,
                                                           const char* pStartupInfo) {
     InitRuntimeConfig();
@@ -1688,6 +1730,7 @@ extern "C" __declspec(dllexport) intptr_t VR_InitInternal(EVRInitError* peError,
     LogPrintf("VR_InitInternal: type=%d", (int)eType);
     (void)pStartupInfo;
     g_token++;
+    StartWatchdog();
     if (!g_noPresenter) Presenter::Get().Start();
     return g_token;
 }

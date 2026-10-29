@@ -372,7 +372,7 @@ namespace Rez3D
             DrawSpaced(g, items[selected].Help ?? "", smallFont, Grey, 48, by, 1);
             DrawSpaced(g, "in game:  ctrl+f3/f4 separation   ctrl+f5/f6 convergence   ctrl+f9/f10 crosstalk",
                        smallFont, DimOrange, 48, by + 26, 1);
-            DrawSpaced(g, "ctrl+f7 save   ctrl+t stereo on/off        " + status, smallFont, DimOrange, 48, by + 48, 1);
+            DrawSpaced(g, "ctrl+f7 save   ctrl+t stereo on/off   ctrl+alt+f4 force quit     " + status, smallFont, DimOrange, 48, by + 48, 1);
             DrawSpaced(g, padText, smallFont, padText.StartsWith("pad: press") || padText == "pad: ok" ? Grey : Color.White,
                        48, by + 74, 1);
         }
@@ -519,6 +519,11 @@ namespace Rez3D
         [STAThread]
         static void Main(string[] args)
         {
+            if (args.Length >= 1 && (args[0] == "--watchdog" || args[0] == "--watchdog-recover-now"))
+            {
+                Watchdog.Run(AppDomain.CurrentDomain.BaseDirectory, args[0] == "--watchdog-recover-now");
+                return;
+            }
             // Lives in the game root (next to Rez-infinite.exe); a path argument overrides
             string snapshot = null;
             if (args.Length >= 2 && args[0] == "--snapshot")
@@ -547,6 +552,136 @@ namespace Rez3D
                 return;
             }
             Application.Run(form);
+        }
+    }
+
+    // A way out that never depends on the game. Rez-infinite.exe keeps a topmost
+    // fullscreen window and hides the taskbar, so when a game process hangs, Alt+Tab
+    // and even Task Manager stay behind black. The runtime starts this next to the
+    // game (one per session); it exits when the game does.
+    //   Ctrl+Alt+F4: end every Rez process, show the taskbar, restore the desktop mode
+    //   automatically when the launcher's window is left alone for 20 s (nothing to play)
+    static class Watchdog
+    {
+        [DllImport("user32.dll")] static extern bool RegisterHotKey(IntPtr hWnd, int id, uint mods, uint vk);
+        [DllImport("user32.dll")] static extern IntPtr FindWindow(string cls, string title);
+        [DllImport("user32.dll")] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
+        [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hWnd, int cmd);
+        [DllImport("user32.dll")] static extern int GetWindowThreadProcessId(IntPtr hWnd, out int pid);
+        [DllImport("user32.dll")] static extern int ChangeDisplaySettings(IntPtr mode, int flags);
+        [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+        [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        static extern bool QueryFullProcessImageName(IntPtr h, int flags, StringBuilder name, ref int size);
+
+        const uint MOD_ALT = 1, MOD_CONTROL = 2, MOD_NOREPEAT = 0x4000, VK_F4 = 0x73;
+        const int WM_HOTKEY = 0x0312;
+        static readonly string[] Names = { "REZAX-Win64-Shipping", "REZAX", "REZ", "Rez-infinite" };
+        static string root;
+        static StreamWriter log;
+
+        static void Log(string text)
+        {
+            try { log.WriteLine(DateTime.Now.ToString("HH:mm:ss.fff") + " " + text); log.Flush(); } catch { }
+        }
+
+        static string ImagePath(Process p)
+        {
+            IntPtr h = OpenProcess(0x1000, false, p.Id);  // PROCESS_QUERY_LIMITED_INFORMATION
+            if (h == IntPtr.Zero) return null;
+            try
+            {
+                var sb = new StringBuilder(1024);
+                int size = sb.Capacity;
+                return QueryFullProcessImageName(h, 0, sb, ref size) ? sb.ToString() : null;
+            }
+            finally { CloseHandle(h); }
+        }
+
+        // This game's processes only (another copy of Rez elsewhere is left alone)
+        static List<Process> Game(string name)
+        {
+            var list = new List<Process>();
+            foreach (var p in Process.GetProcessesByName(name))
+            {
+                var path = ImagePath(p);
+                if (path != null && path.StartsWith(root, StringComparison.OrdinalIgnoreCase)) list.Add(p);
+            }
+            return list;
+        }
+
+        static void Recover(string why)
+        {
+            Log("recovering: " + why);
+            foreach (var name in Names)
+                foreach (var p in Game(name))
+                {
+                    try { p.Kill(); p.WaitForExit(3000); Log("ended " + name + " (" + p.Id + ")"); }
+                    catch (Exception e) { Log("could not end " + name + ": " + e.Message); }
+                }
+            // Rez-infinite.exe hid the taskbar (and the classic Start button)
+            foreach (var cls in new[] { "Shell_TrayWnd", "Shell_SecondaryTrayWnd" })
+                for (IntPtr w = FindWindowEx(IntPtr.Zero, IntPtr.Zero, cls, null); w != IntPtr.Zero;
+                     w = FindWindowEx(IntPtr.Zero, w, cls, null))
+                    ShowWindow(w, 5);  // SW_SHOW
+            IntPtr start = FindWindow("Button", null);
+            if (start != IntPtr.Zero)
+            {
+                int pid;
+                GetWindowThreadProcessId(start, out pid);
+                try { if (Process.GetProcessById(pid).ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase)) ShowWindow(start, 5); }
+                catch { }
+            }
+            ChangeDisplaySettings(IntPtr.Zero, 0);  // back to the desktop's own mode
+            Log("taskbar shown, display mode restored");
+        }
+
+        class HotkeyFilter : IMessageFilter
+        {
+            public bool PreFilterMessage(ref Message m)
+            {
+                if (m.Msg != WM_HOTKEY) return false;
+                Recover("Ctrl+Alt+F4");
+                Application.Exit();
+                return true;
+            }
+        }
+
+        public static void Run(string gameRoot, bool recoverNow)
+        {
+            root = Path.GetFullPath(gameRoot).TrimEnd('\\') + "\\";
+            bool first;
+            using (var single = new System.Threading.Mutex(true, @"Local\Rez3DWatchdog", out first))
+            {
+                if (!first && !recoverNow) return;
+                // Shared, so a --watchdog-recover-now run can log next to the running one
+                try
+                {
+                    var file = Path.Combine(root, @"REZ\rez3d_watchdog.log");
+                    log = new StreamWriter(new FileStream(file, first && !recoverNow ? FileMode.Create : FileMode.Append,
+                                                          FileAccess.Write, FileShare.ReadWrite));
+                }
+                catch { log = StreamWriter.Null; }
+                if (recoverNow) { Recover("requested (--watchdog-recover-now)"); return; }
+                bool hotkey = RegisterHotKey(IntPtr.Zero, 1, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, VK_F4);
+                Log("watching " + root + (hotkey ? ", Ctrl+Alt+F4 ready" : ", Ctrl+Alt+F4 unavailable (taken by another program)"));
+                Application.AddMessageFilter(new HotkeyFilter());
+                int idle = 0, alone = 0;
+                var timer = new Timer { Interval = 1000 };
+                timer.Tick += (s, e) =>
+                {
+                    bool launcher = Game("Rez-infinite").Count > 0;
+                    bool playing = Game("REZ").Count + Game("REZAX").Count + Game("REZAX-Win64-Shipping").Count > 0;
+                    // The game has closed: nothing left to watch
+                    idle = launcher || playing ? 0 : idle + 1;
+                    if (idle >= 3) { Log("game closed"); Application.Exit(); return; }
+                    // Only the launcher's black fullscreen window is left
+                    alone = launcher && !playing ? alone + 1 : 0;
+                    if (alone >= 20) { Recover("the launcher was left alone for 20 s"); Application.Exit(); }
+                };
+                timer.Start();
+                Application.Run();
+            }
         }
     }
 }

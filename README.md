@@ -120,6 +120,15 @@ Live hotkeys in game: Ctrl+F3/F4 separation, Ctrl+F5/F6 convergence,
 Ctrl+F9/F10 crosstalk, Ctrl+F7 save, Ctrl+T stereo on/off. An on-screen readout
 appears while you adjust.
 
+**Ctrl+Alt+F4 force-quits the game** from anywhere. The game's launcher keeps a
+black fullscreen window on top and hides the taskbar, so if the game ever hangs,
+Alt+Tab and even Task Manager stay hidden behind it. Ctrl+Alt+F4 ends every Rez
+process, brings the taskbar back and restores your desktop resolution. It is
+handled by a small watchdog (`Rez3D.exe --watchdog`) that the 3D runtime starts
+with the game and that exits with it; it also does this on its own if the
+launcher's black window is left with nothing running for 20 seconds.
+`REZ\rez3d_watchdog.log` records what it did.
+
 ## Image quality on passive monitors
 
 Each eye only gets every other row, and Rez is made of thin lines.

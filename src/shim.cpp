@@ -270,11 +270,63 @@ static HmdMatrix34_t Identity34() {
     return m;
 }
 
+// Follow aim: an estimate of where the reticle is, built from the same left stick
+// the game reads (through xinput1_3.dll, so bridged pads count too), turned into a
+// smoothed head turn of at most FollowAim degrees.
+static float g_followX = 0.0f, g_followY = 0.0f;        // aim estimate, -1..1
+static float g_followYaw = 0.0f, g_followPitch = 0.0f;  // smoothed head turn, degrees
+
+static void UpdateFollowAim() {
+    if (g_cfg.followAim <= 0.0f) return;
+    struct PadState {
+        DWORD packet;
+        WORD buttons;
+        BYTE lt, rt;
+        SHORT lx, ly, rx, ry;
+    };
+    using GetStateFn = DWORD(WINAPI*)(DWORD, PadState*);
+    static GetStateFn getState = [] {
+        HMODULE m = GetModuleHandleW(L"xinput1_3.dll");
+        if (!m) m = LoadLibraryW(L"xinput1_3.dll");
+        return m ? reinterpret_cast<GetStateFn>(GetProcAddress(m, "XInputGetState")) : nullptr;
+    }();
+    static LARGE_INTEGER last{};
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    float dt = last.QuadPart ? (float)((double)(now.QuadPart - last.QuadPart) / (double)freq.QuadPart) : 0.0f;
+    last = now;
+    if (dt > 0.1f) dt = 0.1f;
+    PadState pad{};
+    float sx = 0.0f, sy = 0.0f;
+    if (getState && getState(0, &pad) == ERROR_SUCCESS) {
+        auto axis = [](SHORT v) {
+            float a = v / 32767.0f;
+            const float dz = 0.24f;  // the game's own dead zone
+            if (fabsf(a) < dz) return 0.0f;
+            return (a > 0 ? a - dz : a + dz) / (1.0f - dz);
+        };
+        sx = axis(pad.lx);
+        sy = axis(pad.ly);
+    }
+    // The reticle crosses the view in about a second at full tilt
+    g_followX += sx * g_cfg.followSpeed * dt;
+    g_followY += sy * g_cfg.followSpeed * dt;
+    g_followX = g_followX < -1.0f ? -1.0f : (g_followX > 1.0f ? 1.0f : g_followX);
+    g_followY = g_followY < -1.0f ? -1.0f : (g_followY > 1.0f ? 1.0f : g_followY);
+    // Ease the head toward the aim (about 0.25 s to settle)
+    const float k = 1.0f - expf(-dt / 0.25f);
+    g_followYaw += (-g_followX * g_cfg.followAim - g_followYaw) * k;
+    g_followPitch += (g_followY * g_cfg.followAim * 0.6f - g_followPitch) * k;
+}
+
 static HmdMatrix34_t HeadPose() {
     HmdMatrix34_t m = Identity34();
-    if (g_cfg.tracking == "mouse") {
-        float yaw = (float)(g_yawDeg * M_PI / 180.0);
-        float pitch = (float)(g_pitchDeg * M_PI / 180.0);
+    const float yawDeg = g_followYaw + (g_cfg.tracking == "mouse" ? g_yawDeg : 0.0f);
+    const float pitchDeg = g_followPitch + (g_cfg.tracking == "mouse" ? g_pitchDeg : 0.0f);
+    if (yawDeg != 0.0f || pitchDeg != 0.0f) {
+        float yaw = (float)(yawDeg * M_PI / 180.0);
+        float pitch = (float)(pitchDeg * M_PI / 180.0);
         float cy = cosf(yaw), sy = sinf(yaw);
         float cp = cosf(pitch), sp = sinf(pitch);
         m.m[0][0] = cy;
@@ -287,6 +339,9 @@ static HmdMatrix34_t HeadPose() {
         m.m[2][1] = cy * sp;
         m.m[2][2] = cy * cp;
     }
+    // OpenVR: +Y up, -Z forward, so "back" is +Z
+    m.m[1][3] = g_cfg.cameraUp;
+    m.m[2][3] = g_cfg.cameraBack;
     return m;
 }
 
@@ -533,13 +588,17 @@ static float HalfEyeOffsetMeters() {
 }
 
 // Frustum tangents in OpenVR's convention (left/top negative, y pointing down).
+// LensShift offsets both vertical edges by a share of the picture height, like a
+// shifted lens: the head stays level, so the image plane stays vertical and
+// head-locked panels stay rectangular. Rez reads positive as "picture down".
 static void EyeTangents(EVREye eye, float& l, float& r, float& t, float& b) {
     float shift = SeparationNdc() * g_tanH;
     if (eye != Eye_Left) shift = -shift;
     l = -g_tanH + shift;
     r = g_tanH + shift;
-    t = -g_tanV;
-    b = g_tanV;
+    const float shiftV = g_cfg.lensShift * 0.01f * 2.0f * g_tanV;
+    t = -g_tanV + shiftV;
+    b = g_tanV + shiftV;
 }
 
 // Same layout as OpenVR's own ComposeProjection (row-major, column vectors).
@@ -944,6 +1003,7 @@ static EVRCompositorError __stdcall Comp_WaitGetPoses(TrackedDevicePose_t* rende
         Presenter::Get().WaitForPresent(timeoutMs < 8 ? 8 : (timeoutMs > 50 ? 50 : timeoutMs));
     }
     UpdateMousePose();
+    UpdateFollowAim();
     PollHotkeys();
     LogFrameSignature();
     LARGE_INTEGER now;

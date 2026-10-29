@@ -125,8 +125,24 @@ Each eye only gets every other row, and Rez is made of thin lines.
   greys the black a little.
 - **Brightness / gamma** compensate the light the glasses take away.
 
-Keep **field of view** at 90: Rez frames the avatar low in the view, and
-narrower values push it off the bottom of the screen.
+## Camera
+
+In VR mode the camera is your head, looking straight ahead. This add-on frames
+it for a monitor:
+
+- **Lens shift** (default 7 %) with **field of view** 85° puts the Area 1
+  avatar where the original game has it, fully in view in the lower half. It
+  moves the picture down like a shifted camera lens, with the view kept level,
+  so menus and warning panels stay rectangular (they sit 7 % lower too).
+  0 is VR mode's view.
+- **Follow aim** (default off) turns the view toward where you move the
+  reticle, up to the set angle, like the original camera following your aim.
+  It reads the same stick the game does. Try 10–15°.
+- `CameraBack` and `CameraUp` in `rez3d.ini` move the viewpoint in meters, for
+  experiments.
+
+The avatar's distance doesn't change, so convergence 20 still puts it on the
+screen plane.
 
 ## Leia SR (glasses-free) panels
 
@@ -184,9 +200,11 @@ OpenVR folder. The launcher covers the common ones. Others:
 | `UnmuteOnStart` | 1 = clear a mute Windows remembered for the game in the volume mixer |
 | `LeiaWindow` | Leia SR: `top` (the game's window, default) or `own` |
 | `MenuSeparation` | experimental: lower separation in detected menus (-1 = off; can misfire) |
+| `LensShift`, `CameraBack`, `CameraUp` | framing and viewpoint (see Camera) |
+| `FollowAim`, `FollowSpeed` | view follows the reticle (see Camera) |
 | `Tracking` | `mouse` = experimental mouse head-look |
 | `GpuComposite` | 0 = slower CPU fallback |
-| `LogFrameCalls`, `DumpFrames`, `DumpAfter`, `DumpEvery` | debugging |
+| `LogFrameCalls`, `DumpFrames`, `DumpAfter`, `DumpEvery`, `DumpAfterSec`, `DumpEverySec` | debugging (frame dumps by frame count or by seconds) |
 
 ## Known limitations
 

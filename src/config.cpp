@@ -69,6 +69,13 @@ bool LoadConfig(const char* dllDir, StereoConfig& cfg) {
     cfg.tracking = Lower(get("tracking", cfg.tracking));
     cfg.mouseSensitivity = getf("mousesensitivity", cfg.mouseSensitivity);
     cfg.invertY = geti("inverty", cfg.invertY);
+    cfg.cameraBack = getf("cameraback", cfg.cameraBack);
+    cfg.cameraUp = getf("cameraup", cfg.cameraUp);
+    cfg.lensShift = getf("lensshift", cfg.lensShift);
+    cfg.dumpAfterSec = getf("dumpaftersec", cfg.dumpAfterSec);
+    cfg.dumpEverySec = getf("dumpeverysec", cfg.dumpEverySec);
+    cfg.followAim = getf("followaim", cfg.followAim);
+    cfg.followSpeed = getf("followspeed", cfg.followSpeed);
     cfg.fps = geti("fps", cfg.fps);
     cfg.nearZ = getf("nearz", cfg.nearZ);
     cfg.farZ = getf("farz", cfg.farZ);

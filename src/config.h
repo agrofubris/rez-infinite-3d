@@ -26,6 +26,18 @@ struct StereoConfig {
     std::string tracking = "off";   // off, mouse
     float mouseSensitivity = 0.25f; // degrees per pixel
     int invertY = 1;
+    // Framing: a vertical lens shift with a level head. The default puts the
+    // Area 1 avatar where the non-VR versions have it. A shift (unlike pitching
+    // the head) keeps menus and warning panels rectangular; they move with it.
+    float lensShift = 7.0f;         // percent of the picture height the image moves down (0 = VR mode's)
+    float cameraBack = 0.0f;        // meters behind the default head position
+    float cameraUp = 0.0f;          // meters above it
+    float dumpAfterSec = 0.0f;      // testing: time-based frame dumps (0 = use DumpAfter frames)
+    float dumpEverySec = 1.0f;
+    // Follow aim: the virtual head turns toward where the left stick has moved the
+    // reticle, like the camera of the non-VR versions. 0 = off.
+    float followAim = 0.0f;         // largest turn in degrees
+    float followSpeed = 1.0f;       // how fast the aim estimate moves, 1 = matches the reticle
     int fps = 0;                    // reported HMD display frequency (0 = monitor refresh rate)
     int framePacing = 1;            // WaitGetPoses blocks until the previous frame was presented
     int unmuteOnStart = 1;          // unmute the game's audio session on launch (Windows remembers mutes)

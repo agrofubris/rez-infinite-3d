@@ -131,7 +131,7 @@ namespace Rez3D
             Text = "Rez Infinite 3D";
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(860, 910);
+            ClientSize = new Size(860, 1000);
             BackColor = Color.Black;
             DoubleBuffered = true;
             KeyPreview = true;
@@ -198,6 +198,10 @@ namespace Rez3D
             Choice("vsync", "VSync", new[] { "1", "0" }, new[] { "on", "off" }, "1", "sync to the display refresh");
             Choice("frame pacing", "FramePacing", new[] { "1", "0" }, new[] { "on", "off" }, "1",
                    "hold the game to the display rate like a vr compositor");
+            Num("lens shift", "LensShift", -20, 20, 1, 7, 0, " %",
+                "moves the picture down. 7 frames the avatar like the original game, 0 is vr mode's view");
+            Num("follow aim", "FollowAim", 0, 30, 5, 0, 0, "°",
+                "the view turns toward your aim, like the original camera. 0 = off");
             Choice("head look", "Tracking", new[] { "off", "mouse" }, new[] { "off", "mouse" }, "off",
                    "experimental: move the camera with the mouse");
             Num("stick speed", "PadStickSpeed", 10, 100, 5, 60, 0, " %",

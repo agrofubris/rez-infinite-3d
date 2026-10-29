@@ -584,6 +584,10 @@ static void InitRuntimeConfig() {
     g_screenWidthMM = widthMM >= 100 ? (float)widthMM : 600.0f;
     LogPrintf("Screen width: %.0f mm (%s)", g_screenWidthMM,
               g_cfg.screenWidthMM > 0 ? "ini" : (widthMM >= 100 ? "EDID" : "EDID unavailable, assumed"));
+    if (g_cfg.screenWidthMM <= 0) LogPrintf("Screen width: %s", MonitorWidthNote());
+    // What 100 % separation means on this screen: distant objects 65 mm apart
+    LogPrintf("Screen width: at %.0f%% separation, distant objects are %.0f mm (%.1f%% of the width) apart",
+              g_cfg.separation, g_cfg.separation * 0.65f, g_cfg.separation * 65.0f / g_screenWidthMM);
 
     QueryPerformanceFrequency(&g_qpcFreq);
     QueryPerformanceCounter(&g_lastVsync);

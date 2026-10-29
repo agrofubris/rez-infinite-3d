@@ -29,6 +29,8 @@ void ComputeEyeSize(const StereoConfig& cfg, int outW, int outH, int& eyeW, int&
 
 // Physical width of the configured monitor from its EDID in mm (0 if unknown).
 int GetMonitorWidthMM(const StereoConfig& cfg);
+// What the monitor's EDID said and which value GetMonitorWidthMM trusted, for the log
+const char* MonitorWidthNote();
 
 // Current refresh rate of the configured monitor in Hz (0 if unknown).
 int GetMonitorRefreshHz(const StereoConfig& cfg);

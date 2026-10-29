@@ -98,11 +98,19 @@ Parallax follows 3D Vision: `parallax = Separation × (1 − Convergence / dista
 
 - **Separation** (0–200 %): how far apart distant objects are on screen;
   100 % = a real eye distance (65 mm) on your screen. The screen size is read
-  from the monitor; set `ScreenWidthMM` for TVs and projectors that don't report it.
+  from the monitor; `REZ\rez3d.log` shows it (`Screen width: … mm`) and what
+  100 % means on it. If depth looks far too strong or too weak, or the size is
+  wrong (some monitors report nonsense), set `ScreenWidthMM` in `rez3d.ini` to
+  the visible width of your screen in millimetres. TVs and projectors often need it.
 - **Convergence** (meters): the distance that sits on the screen plane. The
   avatar flies about 19 m ahead and the levels stretch hundreds of meters
   beyond. The default 20 puts the avatar on the screen and everything else
   behind it. Raise it for pop-out; much past ~30 the avatar doubles.
+- **Area X convergence**: Area X is built at a closer scale (the crosshair
+  about 3 m ahead, the avatar about 9 m), so it has its own setting. The
+  default 3 puts the crosshair on the screen and everything else behind it.
+  Area X reads only this one and Rez only Convergence; Ctrl+F7 saves the one
+  in use.
 
 Why VR Rez feels flat: at a 6.5 cm eye distance nearly everything 19 m and
 farther away is effectively at infinity. Here the virtual eye distance scales

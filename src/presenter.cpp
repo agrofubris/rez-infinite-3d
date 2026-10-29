@@ -289,6 +289,8 @@ static bool GetMonitorDeviceName(int index, wchar_t* name, size_t count) {
     return true;
 }
 
+static char g_widthNote[256] = "";
+
 int GetMonitorWidthMM(const StereoConfig& cfg) {
     wchar_t device[32] = {};
     if (!GetMonitorDeviceName(cfg.monitor, device, 32)) return 0;
@@ -303,17 +305,49 @@ int GetMonitorWidthMM(const StereoConfig& cfg) {
     if (p3 == std::wstring::npos) return 0;
     std::wstring key = L"SYSTEM\\CurrentControlSet\\Enum\\DISPLAY\\" + id.substr(p1 + 1, p2 - p1 - 1) + L"\\" +
                        id.substr(p2 + 1, p3 - p2 - 1) + L"\\Device Parameters";
-    uint8_t edid[256] = {};
+    uint8_t edid[1024] = {};  // base block plus extension blocks
     DWORD size = sizeof(edid);
     if (RegGetValueW(HKEY_LOCAL_MACHINE, key.c_str(), L"EDID", RRF_RT_REG_BINARY, nullptr, edid, &size) !=
             ERROR_SUCCESS ||
-        size < 128)
+        size < 128) {
+        sprintf_s(g_widthNote, "no EDID for %ls", device);
         return 0;
-    // Preferred detailed timing descriptor has the size in mm; byte 21 is cm.
-    int mm = edid[66] | ((edid[68] & 0xF0) << 4);
-    if (mm <= 0) mm = edid[21] * 10;
+    }
+    // Separation is 65 mm over this width, so a wrong value scales all depth: a monitor
+    // that reports ~120 mm gives five times the intended parallax (an SR panel report).
+    // The first detailed descriptor holds the size in mm only when it is a timing
+    // descriptor (nonzero pixel clock); otherwise those bytes are text. Byte 21 is cm.
+    const bool dtd = (edid[54] | edid[55]) != 0;
+    const int dtdMM = dtd ? (edid[66] | ((edid[68] & 0xF0) << 4)) : 0;
+    const int cmMM = edid[21] * 10;
+    int px = 0;
+    {
+        DEVMODEW dm{};
+        dm.dmSize = sizeof(dm);
+        if (EnumDisplaySettingsW(device, ENUM_REGISTRY_SETTINGS, &dm)) px = (int)dm.dmPelsWidth;
+    }
+    // Believable: at least 150 mm and 1.5-12.5 pixels per mm (about 40-320 dpi)
+    auto plausible = [px](int mm) {
+        if (mm < 150) return false;
+        if (px <= 0) return true;
+        const float perMM = (float)px / (float)mm;
+        return perMM >= 1.5f && perMM <= 12.5f;
+    };
+    int mm = 0;
+    const char* used = "none believable";
+    if (plausible(dtdMM)) {
+        mm = dtdMM;
+        used = "detailed timing";
+    } else if (plausible(cmMM)) {
+        mm = cmMM;
+        used = "basic size (cm)";
+    }
+    sprintf_s(g_widthNote, "EDID of %ls: detailed timing %d mm%s, basic size %d mm, desktop %d px -> %s", device,
+              dtdMM, dtd ? "" : " (not a timing descriptor)", cmMM, px, used);
     return mm;
 }
+
+const char* MonitorWidthNote() { return g_widthNote; }
 
 int GetMonitorRefreshHz(const StereoConfig& cfg) {
     wchar_t device[32] = {};

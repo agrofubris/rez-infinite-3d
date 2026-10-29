@@ -1384,6 +1384,11 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
     const bool leiaMode = m_format == FMT_LEIA_SR;
     HWND leiaWindow = m_hwnd;
     if (leiaMode && m_hwnd && m_cfg.leiaWindow != "own") leiaWindow = GetAncestor(m_hwnd, GA_ROOT);
+    if (leiaMode) {
+        MatchWindowSize();
+        if (!m_rtv) return;
+        LogLeiaGeometry(leiaWindow);
+    }
     const bool weave = leiaMode && m_leia.Ready(m_device, m_context, leiaWindow, m_outW, m_outH);
     const int fmt = leiaMode ? FMT_SBS : m_format;
     const int compW = weave ? (m_outW & ~1) * 2 : m_outW;
@@ -1701,6 +1706,106 @@ float Presenter::EffectiveSeparation(float gameplaySeparation) {
     if (m_cfg.menuSeparation < 0.0f || m_gpuDisabled.load()) return gameplaySeparation;
     float b = m_menuBlend.load();
     return gameplaySeparation + (m_cfg.menuSeparation - gameplaySeparation) * b;
+}
+
+// Leia SR weaves per physical pixel, so the woven image has to reach the screen
+// 1:1. The swapchain starts at the monitor's mode, but the window it shows in is
+// the game's and can differ (another resolution, a resize): follow the window's
+// client size instead of letting DXGI stretch the weave.
+void Presenter::MatchWindowSize() {
+    if (!m_swapChain || !m_hwnd) return;
+    RECT rc{};
+    GetClientRect(m_hwnd, &rc);
+    const int w = rc.right, h = rc.bottom;
+    if (w < 64 || h < 64 || (w == m_outW && h == m_outH)) return;
+    m_context->OMSetRenderTargets(0, nullptr, nullptr);
+    m_context->ClearState();
+    SafeRelease(m_rtv);
+    m_context->Flush();
+    HRESULT hr = m_swapChain->ResizeBuffers(0, (UINT)w, (UINT)h, DXGI_FORMAT_UNKNOWN, 0);
+    if (FAILED(hr)) {
+        LogPrintf("Presenter: ResizeBuffers %dx%d failed hr=0x%08lX, keeping %dx%d", w, h, (unsigned long)hr, m_outW,
+                  m_outH);
+    } else {
+        LogPrintf("Presenter: output %dx%d -> %dx%d, the size of the window it is shown in", m_outW, m_outH, w, h);
+        m_outW = w;
+        m_outH = h;
+        // The CPU fallback uploads a whole frame into this texture
+        D3D11_TEXTURE2D_DESC td{};
+        if (m_dynamicTex) m_dynamicTex->GetDesc(&td);
+        td.Width = (UINT)w;
+        td.Height = (UINT)h;
+        SafeRelease(m_dynamicTex);
+        if (SUCCEEDED(m_device->CreateTexture2D(&td, nullptr, &m_dynamicTex))) {
+            m_dynamicW = (UINT)w;
+            m_dynamicH = (UINT)h;
+        }
+    }
+    ID3D11Texture2D* backBuffer = nullptr;
+    if (SUCCEEDED(AcquireBackBuffer(&backBuffer))) {
+        m_device->CreateRenderTargetView(backBuffer, nullptr, &m_rtv);
+        backBuffer->Release();
+    }
+}
+
+// One line with everything the weave's alignment depends on, logged when it
+// changes. A tester's log then shows whether the woven image lands 1:1 on the
+// panel: the display mode, the window the weaver was given, our view and the
+// swapchain must all agree.
+void Presenter::LogLeiaGeometry(HWND weaverWindow) {
+    if (!m_hwnd || m_leiaGeometryLogs >= 20) return;
+    using GetDpiForWindowFn = UINT(WINAPI*)(HWND);
+    static auto getDpi = reinterpret_cast<GetDpiForWindowFn>(
+        GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetDpiForWindow"));
+    HMONITOR mon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFOEXW mi{};
+    mi.cbSize = sizeof(mi);
+    GetMonitorInfoW(mon, &mi);
+    DEVMODEW cur{}, reg{};
+    cur.dmSize = reg.dmSize = sizeof(DEVMODEW);
+    EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &cur);
+    EnumDisplaySettingsW(mi.szDevice, ENUM_REGISTRY_SETTINGS, &reg);
+    auto clientOnScreen = [](HWND h, RECT& r) {
+        GetClientRect(h, &r);
+        POINT o{ 0, 0 };
+        ClientToScreen(h, &o);
+        OffsetRect(&r, o.x, o.y);
+    };
+    RECT ours{}, given{};
+    clientOnScreen(m_hwnd, ours);
+    clientOnScreen(weaverWindow, given);
+    DWORD givenPid = 0;
+    GetWindowThreadProcessId(weaverWindow, &givenPid);
+    UINT scW = 0, scH = 0;
+    DXGI_SWAP_CHAIN_DESC sd{};
+    if (m_swapChain && SUCCEEDED(m_swapChain->GetDesc(&sd))) {
+        scW = sd.BufferDesc.Width;
+        scH = sd.BufferDesc.Height;
+    }
+    const RECT& mr = mi.rcMonitor;
+    char text[640];
+    sprintf_s(text,
+              "monitor %ls (%ld,%ld)-(%ld,%ld) mode %lux%lu (desktop %lux%lu) dpi %u | weaver window %p pid %lu "
+              "client (%ld,%ld)-(%ld,%ld) | 3D view (%ld,%ld)-(%ld,%ld) | swapchain %ux%u",
+              mi.szDevice, mr.left, mr.top, mr.right, mr.bottom, cur.dmPelsWidth, cur.dmPelsHeight, reg.dmPelsWidth,
+              reg.dmPelsHeight, getDpi ? getDpi(m_hwnd) : 0u, (void*)weaverWindow, givenPid, given.left, given.top,
+              given.right, given.bottom, ours.left, ours.top, ours.right, ours.bottom, scW, scH);
+    if (m_leiaGeometry == text) return;
+    m_leiaGeometry = text;
+    m_leiaGeometryLogs++;
+    LogPrintf("Leia SR geometry: %s", text);
+    // The checks that matter for a clean weave, spelled out
+    if (!EqualRect(&ours, &mr))
+        LogPrintf("Leia SR: the 3D view does not cover the whole monitor");
+    if ((long)cur.dmPelsWidth != mr.right - mr.left || (long)cur.dmPelsHeight != mr.bottom - mr.top)
+        LogPrintf("Leia SR: the monitor rectangle differs from its display mode (DPI scaling?)");
+    if (reg.dmPelsWidth && (cur.dmPelsWidth != reg.dmPelsWidth || cur.dmPelsHeight != reg.dmPelsHeight))
+        LogPrintf("Leia SR: the display runs %lux%lu, not the desktop's %lux%lu: the panel is scaling",
+                  cur.dmPelsWidth, cur.dmPelsHeight, reg.dmPelsWidth, reg.dmPelsHeight);
+    if (weaverWindow != m_hwnd && !EqualRect(&given, &ours))
+        LogPrintf("Leia SR: the weaver's window differs from the 3D view (try LeiaWindow=own)");
+    if ((long)scW != ours.right - ours.left || (long)scH != ours.bottom - ours.top)
+        LogPrintf("Leia SR: the swapchain is stretched to the window");
 }
 
 HRESULT Presenter::AcquireBackBuffer(ID3D11Texture2D** out) {

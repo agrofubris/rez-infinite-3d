@@ -7,7 +7,8 @@ body:
     attributes:
       value: |
         Thanks for testing! Before you start, in the launcher set **format** to **leia sr**.
-        To capture a frame, set `DumpFrames=2`, `DumpAfter=600`, `DumpEvery=60` in `REZ\rez3d.ini`.
+        To capture frames, set `DumpFrames=2`, `DumpAfterSec=40`, `DumpEverySec=5` in `REZ\rez3d.ini`
+        (two captures, 40 and 45 seconds after the 3D view starts; play into Area 1 by then).
   - type: input
     id: display
     attributes:

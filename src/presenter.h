@@ -202,6 +202,8 @@ private:
 
     HWND m_hwnd = nullptr;
     LeiaSrHost m_leia;                   // Format=LeiaSR weaver and its textures
+    std::string m_leiaGeometry;          // last logged weave geometry (logged again when it changes)
+    int m_leiaGeometryLogs = 0;
     HWND m_hostHwnd = nullptr;           // the game's window our 3D view sits inside (null: separate window)
     DWORD m_launcherPid = 0;             // Rez-infinite.exe, which owns the game's mono mirror window
     std::atomic<HWND> m_launcherHwnd{nullptr};

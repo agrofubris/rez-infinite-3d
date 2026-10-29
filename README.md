@@ -158,15 +158,24 @@ and `rez3d_leia_sr.dll`, which the release installs next to the 3D runtime.
   at 1.0. Lower it if the frame rate drops.
 - Crosstalk cancellation and the interlace filter are for glasses and are off
   in this mode.
+- The weave is per physical pixel, so the woven image is always shown 1:1 in
+  the game's window, never stretched. `REZ\rez3d.log` has a `Leia SR geometry`
+  line (display mode, DPI, the window the weaver uses, the 3D view and the
+  swapchain) and names anything that doesn't line up.
 - Testers: `REZ3D_DISABLE_LEIA_WEAVE=1` forces the side-by-side fallback, and
-  `LeiaWindow=own` hands the weaver the 3D view instead of the game window, if
-  the panel does not switch to 3D. `DumpFrames` captures the woven output
+  `LeiaWindow=own` hands the weaver the 3D view instead of the game window.
+  `DumpFrames=2`, `DumpAfterSec=40`, `DumpEverySec=5` capture the woven output
   (`rez3d_frame_*.bmp`) and the full-resolution pair the weaver received
   (`rez3d_pair_*.bmp`).
 
-**Status:** the fallback is verified, but the weave has not been tried on a
-panel yet. If you own an SR panel, please open a **Leia SR test report** issue
-(the form lists what to include).
+**Status:** the fallback is verified. In the first SpatialLabs tests (v0.2.0)
+the panel switched to 3D but both eyes saw both views, and plain side-by-side
+showed the same: depth several times stronger than intended, far more than a
+weave can separate. The likely cause is a wrong screen size read from the
+monitor, which v0.3.0 now checks and logs (see Depth; `ScreenWidthMM` overrides
+it). v0.3.0 also shows the weave 1:1, logs its geometry and fixes the hotkeys,
+so convergence and separation respond again. If you own an SR panel, please
+open a **Leia SR test report** issue (the form lists what to include).
 
 ## Controllers
 

@@ -43,21 +43,21 @@ version (`version.txt` in the game folder) and `REZ\rez3d.log`.
 ## Install
 
 1. Download the latest release zip and extract it anywhere.
-2. Right-click `install.ps1` → **Run with PowerShell**, or from a terminal:
+2. Run **`Rez3D.exe`**. It finds the game in your Steam libraries or GOG
+   installs (or choose **browse for the game** and pick the folder that
+   contains `Rez-infinite.exe`), and **install 3d** patches it.
+3. The same window becomes the launcher: pick your display format and choose
+   **play**. Steam must be running for the Steam version. From then on, start
+   `Rez3D.exe` in the game folder.
 
-   ```
-   powershell -ExecutionPolicy Bypass -File .\install.ps1
-   ```
+To update, run the new release's `Rez3D.exe` the same way (**update 3d**); your
+settings are kept. To remove it, choose **uninstall 3d** in the launcher (press
+it twice): the original files come back. Verifying the game files in Steam/GOG
+also restores the originals. A game update may do the same, so install again
+afterwards.
 
-   It finds the game in your Steam libraries or GOG installs. Otherwise pass
-   the folder that contains `Rez-infinite.exe`:
-   `-GameRoot "D:\Games\Rez Infinite"`.
-3. Start **`Rez3D.exe`** in the game folder, pick your display format, and
-   choose **play**. Steam must be running for the Steam version.
-
-To remove it: `uninstall.ps1` restores the original files (add `-KeepSettings`
-to keep your `rez3d.ini`). Verifying the game files in Steam/GOG also
-restores the originals. A game update may do the same, so reinstall afterwards.
+For scripts: `Rez3D.exe --install "<game folder>"` and
+`Rez3D.exe --uninstall "<game folder>" [--keep-settings]`.
 
 What the installer touches (originals kept as `*.orig`):
 
@@ -253,8 +253,9 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 0.1.0
 ```
 
 This builds the runtime, the controller bridge and the launcher, and writes
-`dist\rez-infinite-3d-0.1.0.zip`. `install.ps1` also works straight from a
-source build.
+`dist\rez-infinite-3d-0.1.0.zip`. `build\launcher\Rez3D.exe` carries the
+other files inside it and installs them like the release does;
+`install.ps1` / `uninstall.ps1` also work straight from a source build.
 
 The Leia SR loader (`leia/`, `rez3d_leia_sr.dll`) also needs a checkout of
 [SR-lib](https://github.com/bo3b/SR-lib) on branch `api_expansion`, commit

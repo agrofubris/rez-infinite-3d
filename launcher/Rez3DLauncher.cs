@@ -33,6 +33,7 @@ namespace Rez3D
         public string[] Choices, ChoiceLabels;
         public string DefaultChoice;
         public Action Run;
+        public string Value;  // text shown in the value column of an action (setup: the game folder)
 
         public double Num;
         public int ChoiceIndex;
@@ -90,7 +91,8 @@ namespace Rez3D
         static readonly Color Grey = Color.FromArgb(150, 150, 150);
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-        readonly string gameRoot;
+        string gameRoot;              // null on the setup screen
+        DateTime uninstallArmed;      // the second press within 5 s removes the 3D add-on
         readonly List<string> iniPaths = new List<string>();
         readonly List<Item> items = new List<Item>();
         int selected;
@@ -116,13 +118,8 @@ namespace Rez3D
         ushort padLastButtons;
         string padText = "";
 
-        public LauncherForm(string root)
+        public LauncherForm(string root, List<string> setupRoots)
         {
-            gameRoot = root;
-            iniPaths.Add(Path.Combine(root, @"REZ\rez3d.ini"));
-            var ax = Path.Combine(root, @"AX\Engine\Binaries\ThirdParty\OpenVR\OpenVRv1_0_2\Win64\rez3d.ini");
-            if (File.Exists(ax)) iniPaths.Add(ax);
-
             string family = FontExists("Eurostile") ? "Eurostile" : (FontExists("Bahnschrift") ? "Bahnschrift" : "Segoe UI");
             titleFont = new Font(family, 40f, FontStyle.Bold, GraphicsUnit.Pixel);
             itemFont = new Font(family, 20f, FontStyle.Regular, GraphicsUnit.Pixel);
@@ -131,14 +128,97 @@ namespace Rez3D
             Text = "Rez Infinite 3D";
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(860, 1000);
             BackColor = Color.Black;
             DoubleBuffered = true;
             KeyPreview = true;
 
+            if (root != null) EnterLauncher(root);
+            else EnterSetup(setupRoots ?? new List<string>());
+        }
+
+        void EnterLauncher(string root)
+        {
+            gameRoot = root;
+            iniPaths.Clear();
+            iniPaths.Add(Path.Combine(root, @"REZ\rez3d.ini"));
+            var ax = Path.Combine(root, @"AX\Engine\Binaries\ThirdParty\OpenVR\OpenVRv1_0_2\Win64\rez3d.ini");
+            if (File.Exists(ax)) iniPaths.Add(ax);
+            ClientSize = new Size(860, 1030);
+            items.Clear();
+            selected = 0;
             BuildItems();
             Load_();
             InitPad();
+            Invalidate();
+        }
+
+        // Setup: shown when Rez3D.exe runs from the release zip. One entry per Rez Infinite
+        // found (Steam libraries, GOG), plus browsing for another folder.
+        void EnterSetup(List<string> roots)
+        {
+            ClientSize = new Size(860, 560);
+            foreach (var r in roots)
+            {
+                var root = r;
+                bool update = Installer.IsInstalled(root);
+                items.Add(new Item { Label = update ? "update 3d" : "install 3d", Kind = Kind.Action, Value = root,
+                                     Run = () => DoInstall(root),
+                                     Help = update ? "update rez infinite 3d in this copy. your settings are kept"
+                                                   : "add 3d to this copy. replaced game files are kept and restored by uninstall" });
+            }
+            items.Add(new Item { Label = "browse for the game", Kind = Kind.Action, Run = Browse,
+                                 Help = "pick the folder that contains rez-infinite.exe" });
+            items.Add(new Item { Label = "quit", Kind = Kind.Action, Run = Close, Help = "close without installing" });
+            status = roots.Count > 0 ? "" : "rez infinite was not found: browse for its folder";
+        }
+
+        void DoInstall(string root)
+        {
+            try
+            {
+                Installer.Install(root);
+                bool wasUpdate = items.Count > 0 && items[selected].Label == "update 3d";
+                var location = Location;
+                EnterLauncher(root);
+                Location = location;
+                status = wasUpdate ? "updated. ready to play" : "installed. pick your display format, then play";
+            }
+            catch (Exception e)
+            {
+                status = "install failed: " + e.Message.ToLowerInvariant();
+            }
+            Invalidate();
+        }
+
+        void Browse()
+        {
+            using (var dlg = new FolderBrowserDialog { Description = "Pick the Rez Infinite folder (it contains Rez-infinite.exe)" })
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                if (Installer.IsGameRoot(dlg.SelectedPath)) DoInstall(dlg.SelectedPath);
+                else { status = "that folder has no rez-infinite.exe"; Invalidate(); }
+            }
+        }
+
+        void Uninstall()
+        {
+            if (DateTime.Now > uninstallArmed)
+            {
+                uninstallArmed = DateTime.Now.AddSeconds(5);
+                status = "press again to remove 3d and restore the original game files";
+                Invalidate();
+                return;
+            }
+            try
+            {
+                Installer.UninstallAfterExit(gameRoot);
+                Close();
+            }
+            catch (Exception e)
+            {
+                status = "uninstall failed: " + e.Message.ToLowerInvariant();
+                Invalidate();
+            }
         }
 
         static bool FontExists(string name)
@@ -212,6 +292,8 @@ namespace Rez3D
                 "above 1 = finer aim near the centre, full speed still at the edge");
             items.Add(new Item { Label = "defaults", Kind = Kind.Action, Run = Defaults,
                                  Help = "restore every value above to its default" });
+            items.Add(new Item { Label = "uninstall 3d", Kind = Kind.Action, Run = Uninstall,
+                                 Help = "remove rez infinite 3d from this copy and restore the original game files" });
             items.Add(new Item { Label = "quit", Kind = Kind.Action, Run = Close, Help = "close without playing" });
         }
 
@@ -236,7 +318,7 @@ namespace Rez3D
                         c => string.Equals(c, has ? v : it.DefaultChoice, StringComparison.OrdinalIgnoreCase)));
                 }
             }
-            if (!File.Exists(iniPaths[0])) status = "rez3d.ini not found: run install.ps1 first";
+            if (!File.Exists(iniPaths[0])) status = "rez3d.ini not found: run rez3d.exe from the release zip to install";
         }
 
         string IniValue(Item it)
@@ -263,7 +345,12 @@ namespace Rez3D
         string Display(Item it)
         {
             if (it.Kind == Kind.Choice) return it.ChoiceLabels[it.ChoiceIndex];
-            if (it.Kind == Kind.Action) return "";
+            if (it.Kind == Kind.Action)
+            {
+                // A long folder keeps its end: "...\steamapps\common\Rez Infinite"
+                var v = (it.Value ?? "").ToLowerInvariant();
+                return v.Length > 30 ? "..." + v.Substring(v.Length - 30) : v;
+            }
             if (it.Key == "MenuSeparation" && it.Num < 0) return "off";
             if (it.Key == "Crosstalk" && it.Num == 0) return "off";
             return it.Num.ToString("F" + it.Decimals, Inv) + it.Unit;
@@ -290,6 +377,7 @@ namespace Rez3D
 
         void Play()
         {
+            if (gameRoot == null) return;  // setup screen: nothing installed yet
             Save();
             var exe = Path.Combine(gameRoot, "Rez-infinite.exe");
             if (!File.Exists(exe)) exe = Path.Combine(gameRoot, @"REZ\REZ.exe");
@@ -364,6 +452,10 @@ namespace Rez3D
                     var val = Display(it);
                     DrawSpaced(g, sel ? "<  " + val + "  >" : "   " + val, itemFont, c, valueX, y, 2);
                 }
+                else if (it.Value != null)
+                {
+                    DrawSpaced(g, Display(it), smallFont, sel ? Color.White : Grey, 300, y + 4, 1);
+                }
                 if (sel)
                     using (var b = new SolidBrush(Orange)) g.FillRectangle(b, 46, y + 8, 6, 6);
             }
@@ -371,6 +463,13 @@ namespace Rez3D
             float by = ClientSize.Height - 96;
             using (var pen = new Pen(DimOrange, 1)) g.DrawLine(pen, 48, by - 12, ClientSize.Width - 48, by - 12);
             DrawSpaced(g, items[selected].Help ?? "", smallFont, Grey, 48, by, 1);
+            if (gameRoot == null)
+            {
+                DrawSpaced(g, "setup: needs your own steam or gog copy of rez infinite", smallFont, DimOrange, 48, by + 26, 1);
+                DrawSpaced(g, status, smallFont, status.Length > 0 && status.Contains("fail") ? Color.White : DimOrange,
+                           48, by + 48, 1);
+                return;
+            }
             DrawSpaced(g, "in game:  ctrl+f3/f4 separation   ctrl+f5/f6 convergence   ctrl+f9/f10 crosstalk",
                        smallFont, DimOrange, 48, by + 26, 1);
             DrawSpaced(g, "ctrl+f7 save   ctrl+t stereo on/off   ctrl+alt+f4 force quit     " + status, smallFont, DimOrange, 48, by + 48, 1);
@@ -515,6 +614,207 @@ namespace Rez3D
         }
     }
 
+    // Installs into / removes from a Rez Infinite folder, exactly like install.ps1 and
+    // uninstall.ps1: replaced files are kept as *.orig, and rez3d-installed.txt records
+    // "added|<path>" or "replaced|<path>" for every file touched. The files to install
+    // are embedded in this exe (build.ps1), so Rez3D.exe alone patches the game.
+    static class Installer
+    {
+        public const string Manifest = "rez3d-installed.txt";
+        const string AxVr = @"AX\Engine\Binaries\ThirdParty\OpenVR\OpenVRv1_0_2\Win64";
+        const string AxBin = @"AX\REZAX\Binaries\Win64";
+
+        public static bool IsGameRoot(string dir)
+        {
+            return !string.IsNullOrEmpty(dir) && File.Exists(Path.Combine(dir, @"REZ\REZ.exe")) &&
+                   File.Exists(Path.Combine(dir, "Rez-infinite.exe"));
+        }
+
+        public static bool IsInstalled(string root) { return File.Exists(Path.Combine(root, Manifest)); }
+
+        // Steam libraries (libraryfolders.vdf) and GOG installs (registry), as game-path.ps1
+        public static List<string> FindGameRoots()
+        {
+            var candidates = new List<string>();
+            string steam = null;
+            foreach (var key in new[] { @"HKEY_CURRENT_USER\Software\Valve\Steam", @"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam" })
+            {
+                steam = Microsoft.Win32.Registry.GetValue(key, "SteamPath", null) as string ??
+                        Microsoft.Win32.Registry.GetValue(key, "InstallPath", null) as string;
+                if (steam != null) break;
+            }
+            if (steam != null)
+            {
+                var libs = new List<string> { steam.Replace('/', '\\') };
+                var vdf = Path.Combine(steam, @"steamapps\libraryfolders.vdf");
+                try
+                {
+                    if (File.Exists(vdf))
+                        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
+                                     File.ReadAllText(vdf), "\"path\"\\s+\"([^\"]+)\""))
+                            libs.Add(m.Groups[1].Value.Replace(@"\\", @"\"));
+                }
+                catch { }
+                foreach (var lib in libs) candidates.Add(Path.Combine(lib, @"steamapps\common\Rez Infinite"));
+            }
+            foreach (var key in new[] { @"SOFTWARE\WOW6432Node\GOG.com\Games", @"SOFTWARE\GOG.com\Games" })
+            {
+                try
+                {
+                    using (var games = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(key))
+                        if (games != null)
+                            foreach (var id in games.GetSubKeyNames())
+                                using (var g = games.OpenSubKey(id))
+                                {
+                                    var name = g.GetValue("gameName") as string;
+                                    var path = g.GetValue("path") as string;
+                                    if (name != null && path != null && name.StartsWith("Rez Infinite", StringComparison.OrdinalIgnoreCase))
+                                        candidates.Add(path);
+                                }
+                }
+                catch { }
+            }
+            var found = new List<string>();
+            foreach (var c in candidates)
+            {
+                if (!IsGameRoot(c)) continue;
+                var full = Path.GetFullPath(c).TrimEnd('\\');
+                if (!found.Exists(f => string.Equals(f, full, StringComparison.OrdinalIgnoreCase))) found.Add(full);
+            }
+            return found;
+        }
+
+        // An embedded payload file, or the same file next to the exe (bin\) in a developer build
+        static byte[] Payload(string name, bool required)
+        {
+            using (var s = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("payload/" + name))
+                if (s != null)
+                {
+                    var ms = new MemoryStream();
+                    s.CopyTo(ms);
+                    return ms.ToArray();
+                }
+            var side = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"bin\" + name);
+            if (File.Exists(side)) return File.ReadAllBytes(side);
+            if (required) throw new FileNotFoundException(name + " is missing from this Rez3D.exe");
+            return null;
+        }
+
+        public static string Install(string root)
+        {
+            root = Path.GetFullPath(root).TrimEnd('\\');
+            if (!IsGameRoot(root)) throw new InvalidOperationException("not a rez infinite folder: " + root);
+            var shim = Payload("openvr_api.dll", true);
+            var pad = Payload("xinput1_3.dll", true);
+            var leia = Payload("rez3d_leia_sr.dll", false);  // absent from builds without the SR SDK
+            var ini = Payload("rez3d.ini", true);
+
+            var manifest = Path.Combine(root, Manifest);
+            var entries = File.Exists(manifest) ? new List<string>(File.ReadAllLines(manifest)) : new List<string>();
+            entries.RemoveAll(string.IsNullOrWhiteSpace);
+            Func<string, string> rel = p => p.Substring(root.Length).TrimStart('\\');
+            Func<string, bool> known = p => entries.Exists(e => e.EndsWith("|" + rel(p), StringComparison.OrdinalIgnoreCase));
+            Action<string, byte[]> file = (to, data) =>
+            {
+                if (File.Exists(to) && !known(to))
+                {
+                    // An existing .orig is older than the file now in place (an earlier mod
+                    // or manual install), so it is the one to restore: never overwrite it
+                    if (!File.Exists(to + ".orig")) File.Copy(to, to + ".orig");
+                    entries.Add("replaced|" + rel(to));
+                }
+                else if (!known(to)) entries.Add("added|" + rel(to));
+                File.WriteAllBytes(to, data);
+            };
+            // Settings: an update keeps the player's own ini
+            Action<string> settings = dir =>
+            {
+                var to = Path.Combine(dir, "rez3d.ini");
+                if (File.Exists(to)) return;
+                var legacy = Path.Combine(dir, "rezstereo.ini");
+                if (File.Exists(legacy)) File.Copy(legacy, to); else File.WriteAllBytes(to, ini);
+                entries.Add("added|" + rel(to));
+            };
+
+            var rez = Path.Combine(root, "REZ");
+            file(Path.Combine(rez, "openvr_api.dll"), shim);
+            file(Path.Combine(rez, "xinput1_3.dll"), pad);
+            if (leia != null) file(Path.Combine(rez, "rez3d_leia_sr.dll"), leia);
+            settings(rez);
+            var axvr = Path.Combine(root, AxVr);
+            if (Directory.Exists(axvr))
+            {
+                file(Path.Combine(axvr, "openvr_api.dll"), shim);
+                if (leia != null) file(Path.Combine(axvr, "rez3d_leia_sr.dll"), leia);
+                settings(axvr);
+            }
+            var axbin = Path.Combine(root, AxBin);
+            if (Directory.Exists(axbin)) file(Path.Combine(axbin, "xinput1_3.dll"), pad);
+
+            // This exe becomes the game's launcher (and the runtime's watchdog)
+            var self = System.Reflection.Assembly.GetExecutingAssembly().Location;
+            var launcher = Path.Combine(root, "Rez3D.exe");
+            if (!string.Equals(Path.GetFullPath(self), launcher, StringComparison.OrdinalIgnoreCase))
+                file(launcher, File.ReadAllBytes(self));
+
+            // Steam copies: started outside Steam, the game restarts itself through Steam and
+            // loses the vr=1 argument. steam_appid.txt (Valve's documented way to run a Steam
+            // game straight from its folder) keeps it in this process.
+            var appid = Path.Combine(root, "steam_appid.txt");
+            if (File.Exists(Path.Combine(root, "steam_api64.dll")) && !File.Exists(appid))
+            {
+                File.WriteAllText(appid, "636450", Encoding.ASCII);
+                entries.Add("added|" + rel(appid));
+            }
+            File.WriteAllLines(manifest, entries.ToArray(), new UTF8Encoding(true));
+            return "installed into " + root;
+        }
+
+        public static string Uninstall(string root, bool keepSettings)
+        {
+            root = Path.GetFullPath(root).TrimEnd('\\');
+            var manifest = Path.Combine(root, Manifest);
+            if (!File.Exists(manifest)) throw new InvalidOperationException("rez infinite 3d is not installed in " + root);
+            int restored = 0, removed = 0;
+            foreach (var line in File.ReadAllLines(manifest))
+            {
+                var parts = line.Split(new[] { '|' }, 2);
+                if (parts.Length < 2 || parts[1].Length == 0) continue;
+                var p = Path.Combine(root, parts[1]);
+                if (parts[0] == "replaced" && File.Exists(p + ".orig"))
+                {
+                    if (File.Exists(p)) File.Delete(p);
+                    File.Move(p + ".orig", p);
+                    restored++;
+                }
+                else if (parts[0] == "added" && File.Exists(p))
+                {
+                    if (keepSettings && p.EndsWith("rez3d.ini", StringComparison.OrdinalIgnoreCase)) continue;
+                    File.Delete(p);
+                    removed++;
+                }
+            }
+            File.Delete(manifest);
+            // Logs and debug output written while playing
+            foreach (var pattern in new[] { "rez3d.log", "rezstereo.log", "xinput_proxy.log", "rez3d_watchdog.log",
+                                            "rez3d_frame_*.bmp", "rez3d_pair_*.bmp", "rezstereo_frame_*.bmp", "rezpad.txt" })
+                foreach (var f in Directory.GetFiles(root, pattern, SearchOption.AllDirectories))
+                    try { File.Delete(f); } catch { }
+            return string.Format("restored {0} original file(s) and removed {1} added file(s)", restored, removed);
+        }
+
+        // The running Rez3D.exe can't restore or delete itself: a temporary copy waits for
+        // this process to exit and does the work, then reports in a message box.
+        public static void UninstallAfterExit(string root)
+        {
+            var tmp = Path.Combine(Path.GetTempPath(), "Rez3D-uninstall.exe");
+            File.Copy(System.Reflection.Assembly.GetExecutingAssembly().Location, tmp, true);
+            Process.Start(new ProcessStartInfo(tmp, string.Format("--uninstall \"{0}\" --wait-pid {1}", root,
+                                                                  Process.GetCurrentProcess().Id))
+                          { UseShellExecute = false });
+        }
+    }
+
     static class Program
     {
         [STAThread]
@@ -534,6 +834,29 @@ namespace Rez3D
                 Array.Copy(args, 2, rest, 0, rest.Length);
                 args = rest;
             }
+            // Without a window: Rez3D.exe --install <game folder> / --uninstall <game folder>
+            // [--keep-settings] [--quiet] [--wait-pid N] (the launcher's uninstall uses the last)
+            if (args.Length >= 2 && (args[0] == "--install" || args[0] == "--uninstall"))
+            {
+                var flags = new List<string>(args);
+                bool quiet = flags.Contains("--quiet");
+                int wait = flags.IndexOf("--wait-pid");
+                if (wait > 0 && wait + 1 < args.Length)
+                    try { Process.GetProcessById(int.Parse(args[wait + 1])).WaitForExit(15000); } catch { }
+                string msg;
+                bool ok = true;
+                try
+                {
+                    msg = args[0] == "--install" ? Installer.Install(args[1])
+                                                 : Installer.Uninstall(args[1], flags.Contains("--keep-settings"));
+                }
+                catch (Exception e) { msg = "failed: " + e.Message; ok = false; }
+                Console.WriteLine(msg);
+                if (!quiet && args[0] == "--uninstall")
+                    MessageBox.Show(ok ? "Rez Infinite 3D was removed: " + msg + "." : "Uninstall " + msg, "Rez Infinite 3D",
+                                    MessageBoxButtons.OK, ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                Environment.Exit(ok ? 0 : 1);
+            }
             string root = args.Length > 0 ? args[0] : AppDomain.CurrentDomain.BaseDirectory;
             if (!File.Exists(Path.Combine(root, @"REZ\REZ.exe")))
             {
@@ -541,7 +864,15 @@ namespace Rez3D
                 if (File.Exists(Path.Combine(sibling, @"REZ\REZ.exe"))) root = sibling;
             }
             Application.EnableVisualStyles();
-            var form = new LauncherForm(root);
+            // Run from the release zip (or a game without 3D yet): the setup screen
+            List<string> setupRoots = null;
+            if (!Installer.IsGameRoot(root) || !Installer.IsInstalled(root))
+            {
+                setupRoots = Installer.IsGameRoot(root) ? new List<string> { Path.GetFullPath(root).TrimEnd('\\') }
+                                                        : Installer.FindGameRoots();
+                root = null;
+            }
+            var form = new LauncherForm(root, setupRoots);
             if (snapshot != null)
             {
                 // Testing: render the launcher to an image without ever showing it

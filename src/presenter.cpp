@@ -500,7 +500,33 @@ void Presenter::StopForProcessExit() {
 void Presenter::Stop() {
     m_exit = true;
     if (m_frameEvent) SetEvent(m_frameEvent);
-    if (m_thread.joinable()) m_thread.join();
+    if (m_thread.joinable()) {
+        // The game calls this from its main thread, which owns the window ours sits
+        // in. Windows can make our thread wait on that window (a message sent to its
+        // thread), so keep answering sent messages while we wait, or both threads
+        // wait forever: Area X hung on exit that way, and the next Rez never started.
+        HANDLE thread = m_thread.native_handle();
+        const ULONGLONG start = GetTickCount64();
+        bool finished = false;
+        while (!finished) {
+            DWORD r = MsgWaitForMultipleObjects(1, &thread, FALSE, 100, QS_SENDMESSAGE);
+            if (r == WAIT_OBJECT_0) {
+                finished = true;
+            } else {
+                MSG msg;
+                PeekMessageW(&msg, nullptr, 0, 0, PM_NOREMOVE | PM_QS_SENDMESSAGE);  // runs the sent ones
+                if (GetTickCount64() - start > 3000) break;
+            }
+        }
+        if (!finished) {
+            // Never hold the game's exit hostage: the process ends the thread anyway
+            LogPrintf("Presenter: display thread did not stop within 3 s, leaving it to the process exit");
+            m_thread.detach();
+            m_started = false;
+            return;
+        }
+        m_thread.join();
+    }
     ReleaseCapture();
     ReleaseGameSlots();
     m_started = false;
@@ -588,11 +614,22 @@ void Presenter::CreateWindowOnMonitor() {
         GetClientRect(host, &rc);
         SetWindowLongW(host, GWL_STYLE, GetWindowLongW(host, GWL_STYLE) | WS_CLIPCHILDREN);
         // Disabled: mouse and keyboard keep going to the game's window
-        m_hwnd = CreateWindowExW(0, L"Rez3DScreen", L"Rez Infinite 3D",
+        // NOPARENTNOTIFY: creating or destroying ours never waits on the game's thread
+        m_hwnd = CreateWindowExW(WS_EX_NOPARENTNOTIFY, L"Rez3DScreen", L"Rez Infinite 3D",
                                  WS_CHILD | WS_VISIBLE | WS_DISABLED | WS_CLIPSIBLINGS, 0, 0, rc.right, rc.bottom,
                                  host, nullptr, GetModuleHandleW(nullptr), nullptr);
         if (m_hwnd) {
             m_hostHwnd = host;
+            if (!m_launcherPid) {
+                // Area X: the window hosting ours is the launcher's
+                DWORD pid = 0;
+                GetWindowThreadProcessId(GetAncestor(host, GA_ROOT), &pid);
+                if (pid != GetCurrentProcessId()) {
+                    m_launcherPid = pid;
+                    m_launcherHwnd = GetAncestor(host, GA_ROOT);
+                    LogPrintf("Presenter: launcher process %lu (hosts the game window)", pid);
+                }
+            }
             SetWindowPos(m_hwnd, HWND_TOP, 0, 0, rc.right, rc.bottom, SWP_NOACTIVATE | SWP_SHOWWINDOW);
             char cls[64] = {};
             GetClassNameA(host, cls, sizeof(cls));
@@ -1149,7 +1186,12 @@ void Presenter::CheckWindowOrder() {
         if (pid != c->pid || !IsWindowVisible(h)) return TRUE;
         char cls[64] = {}, title[64] = {};
         GetClassNameA(h, cls, sizeof(cls));
-        GetWindowTextA(h, title, sizeof(title));
+        {
+            // InternalGetWindowText never sends WM_GETTEXT to the window's thread
+            wchar_t wt[64] = {};
+            InternalGetWindowText(h, wt, 64);
+            WideCharToMultiByte(CP_ACP, 0, wt, -1, title, sizeof(title), nullptr, nullptr);
+        }
         RECT r{};
         GetWindowRect(h, &r);
         LONG ex = GetWindowLongA(h, GWL_EXSTYLE);

@@ -141,6 +141,14 @@ namespace Rez3D
         {
             gameRoot = root;
             Installer.RememberedRoot = Path.GetFullPath(root).TrimEnd('\\');
+            // The game's own icon for the window and taskbar, read from the player's copy:
+            // the release carries no game files, so Rez3D.exe has no icon of its own
+            try
+            {
+                var game = Path.Combine(root, "Rez-infinite.exe");
+                if (File.Exists(game)) { Icon = Icon.ExtractAssociatedIcon(game); ShowIcon = true; }
+            }
+            catch { }
             updateOnPlay = Installer.NeedsUpdate(root);
             iniPaths.Clear();
             iniPaths.Add(Path.Combine(root, @"REZ\rez3d.ini"));

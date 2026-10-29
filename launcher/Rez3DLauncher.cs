@@ -319,19 +319,20 @@ namespace Rez3D
             Invalidate();
         }
 
-        // Rez's menus use widely spaced lowercase type
+        // Rez's menus use widely spaced lowercase type. Drawn a glyph at a time on
+        // whole pixels with Windows' own text renderer: GDI+ grid-fitting each glyph
+        // at a fractional position gave Eurostile's thin strokes uneven weights.
         static void DrawSpaced(Graphics g, string text, Font font, Color color, float x, float y, float spacing)
         {
-            using (var b = new SolidBrush(color))
+            const TextFormatFlags flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix;
+            var box = new Size(1000, 200);
+            float space = TextRenderer.MeasureText(g, "x x", font, box, flags).Width -
+                          TextRenderer.MeasureText(g, "xx", font, box, flags).Width;
+            foreach (char c in text)
             {
-                var fmt = StringFormat.GenericTypographic;
-                fmt.FormatFlags |= StringFormatFlags.MeasureTrailingSpaces;
-                foreach (char c in text)
-                {
-                    var s = c.ToString();
-                    g.DrawString(s, font, b, x, y, fmt);
-                    x += g.MeasureString(s, font, PointF.Empty, fmt).Width + spacing;
-                }
+                var s = c.ToString();
+                if (c != ' ') TextRenderer.DrawText(g, s, font, new Point((int)Math.Round(x), (int)Math.Round(y)), color, flags);
+                x += (c == ' ' ? space : TextRenderer.MeasureText(g, s, font, box, flags).Width) + spacing;
             }
         }
 

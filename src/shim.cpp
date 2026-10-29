@@ -5,6 +5,7 @@
 #include "openvr_compat.h"
 
 #include <windows.h>
+#include <tlhelp32.h>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -382,6 +383,65 @@ static void ShowStereoOsd(const char* suffix = "") {
     Presenter::Get().ShowOsd(text);
 }
 
+// True when the foreground window belongs to the game: this process or one of the
+// processes that started it. Rez-infinite.exe owns the fullscreen window the game
+// draws in (and Area X adds a bootstrap process in between), so the foreground
+// window is usually not this process's own.
+static bool GameHasFocus() {
+    static DWORD family[4] = {};
+    static int count = -1;
+    if (count < 0) {
+        count = 0;
+        family[count++] = GetCurrentProcessId();
+        HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snap != INVALID_HANDLE_VALUE) {
+            for (int level = 0; level < 3 && count < 4; level++) {
+                DWORD child = family[count - 1], parent = 0;
+                PROCESSENTRY32W pe{ sizeof(pe) };
+                for (BOOL ok = Process32FirstW(snap, &pe); ok; ok = Process32NextW(snap, &pe))
+                    if (pe.th32ProcessID == child) { parent = pe.th32ParentProcessID; break; }
+                if (!parent) break;
+                // Stop at the shell or a launcher of ours: only game processes count
+                bool game = false;
+                for (BOOL ok = Process32FirstW(snap, &pe); ok; ok = Process32NextW(snap, &pe))
+                    if (pe.th32ProcessID == parent) {
+                        game = _wcsnicmp(pe.szExeFile, L"Rez", 3) == 0;
+                        break;
+                    }
+                if (!game) break;
+                family[count++] = parent;
+            }
+            CloseHandle(snap);
+        }
+    }
+    HWND fg = GetForegroundWindow();
+    DWORD pid = 0;
+    GetWindowThreadProcessId(fg, &pid);
+    for (int i = 0; i < count; i++)
+        if (pid == family[i]) return true;
+    // Area X: REZ.exe started it and exited, so the launcher whose window hosts the
+    // game's isn't a parent. A foreground window that hosts one of ours counts.
+    static HWND lastFg = nullptr;
+    static ULONGLONG lastCheck = 0;
+    static bool hosts = false;
+    const ULONGLONG now = GetTickCount64();
+    if (fg != lastFg || now - lastCheck > 1000) {
+        lastFg = fg;
+        lastCheck = now;
+        struct Ctx { DWORD self; bool found; } ctx{ GetCurrentProcessId(), false };
+        if (fg)
+            EnumChildWindows(fg, [](HWND h, LPARAM lp) -> BOOL {
+                auto* c = reinterpret_cast<Ctx*>(lp);
+                DWORD p = 0;
+                GetWindowThreadProcessId(h, &p);
+                if (p == c->self) { c->found = true; return FALSE; }
+                return TRUE;
+            }, (LPARAM)&ctx);
+        hosts = ctx.found;
+    }
+    return hosts;
+}
+
 static void PollHotkeys() {
     static bool shownAtStart = false;
     if (!shownAtStart) {
@@ -397,10 +457,8 @@ static void PollHotkeys() {
     last = now;
     if (dt > 0.1f) dt = 0.1f;
 
-    DWORD pid = 0;
-    GetWindowThreadProcessId(GetForegroundWindow(), &pid);
     bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-    if (pid != GetCurrentProcessId() || !ctrl) {
+    if (!GameHasFocus() || !ctrl) {
         wasT = wasF7 = false;
         if (adjusting) {
             adjusting = false;

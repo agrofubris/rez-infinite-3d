@@ -662,7 +662,7 @@ namespace Rez3D
     // Installs into / removes from a Rez Infinite folder, exactly like install.ps1 and
     // uninstall.ps1: replaced files are kept as *.orig, and rez3d-installed.txt records
     // "added|<path>" or "replaced|<path>" for every file touched. The files to install
-    // are embedded in this exe (build.ps1), so Rez3D.exe alone patches the game.
+    // sit in the bin\ folder next to this exe (build.ps1 puts them there and in the zip).
     static class Installer
     {
         public const string Manifest = "rez3d-installed.txt";
@@ -796,19 +796,13 @@ namespace Rez3D
             return found;
         }
 
-        // An embedded payload file, or the same file next to the exe (bin\) in a developer build
+        // A file to install, from the bin\ folder next to this exe (release zip, build folder)
         static byte[] Payload(string name, bool required)
         {
-            using (var s = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("payload/" + name))
-                if (s != null)
-                {
-                    var ms = new MemoryStream();
-                    s.CopyTo(ms);
-                    return ms.ToArray();
-                }
             var side = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"bin\" + name);
             if (File.Exists(side)) return File.ReadAllBytes(side);
-            if (required) throw new FileNotFoundException(name + " is missing from this Rez3D.exe");
+            if (required)
+                throw new FileNotFoundException("bin\\" + name + " not found: run rez3d.exe from the extracted release zip");
             return null;
         }
 

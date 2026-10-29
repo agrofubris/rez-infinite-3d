@@ -40,23 +40,38 @@ if (Test-Path (Join-Path $SrLib 'CMakeLists.txt')) {
 }
 
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-New-Item -ItemType Directory -Force 'build\launcher', 'build\tools' | Out-Null
-# Rez3D.exe carries everything it installs (setup when run outside the game folder)
-$payload = @("-resource:build\Release\openvr_api.dll,payload/openvr_api.dll",
-             "-resource:xinput-proxy\build\Release\xinput1_3.dll,payload/xinput1_3.dll",
-             "-resource:rez3d.ini,payload/rez3d.ini")
-if ($leia) { $payload += "-resource:$leia,payload/rez3d_leia_sr.dll" }
-Run $csc (@('-nologo', '-target:winexe', '-r:System.Windows.Forms.dll', '-r:System.Drawing.dll',
-            '-out:build\launcher\Rez3D.exe') + $payload + @('launcher\Rez3DLauncher.cs'))
+New-Item -ItemType Directory -Force 'build\launcher\bin', 'build\tools' | Out-Null
+# Rez3D.exe installs the files in the bin\ folder next to it. They are plain files,
+# not embedded: an exe that carries DLLs and writes them out is what antivirus
+# heuristics flag as a dropper (Defender's Sabsik.FL.A!ml hit the embedded build).
+$payload = @('build\Release\openvr_api.dll', 'xinput-proxy\build\Release\xinput1_3.dll', 'rez3d.ini')
+if ($leia) { $payload += $leia }
+Copy-Item $payload 'build\launcher\bin'
+# Version information for the exe (Explorer > Properties > Details)
+$numeric = if ($Version -match '^\d+(\.\d+){0,3}') { $Matches[0] } else { '0.0.0' }
+@"
+using System.Reflection;
+[assembly: AssemblyTitle("Rez Infinite 3D")]
+[assembly: AssemblyDescription("Stereoscopic 3D for Rez Infinite: setup and launcher")]
+[assembly: AssemblyProduct("Rez Infinite 3D")]
+[assembly: AssemblyCompany("agrofubris")]
+[assembly: AssemblyCopyright("MIT License, github.com/agrofubris/rez-infinite-3d")]
+[assembly: AssemblyVersion("$numeric")]
+[assembly: AssemblyFileVersion("$numeric")]
+[assembly: AssemblyInformationalVersion("$Version")]
+"@ | Set-Content -Encoding UTF8 'build\launcher\AssemblyInfo.cs'
+Run $csc @('-nologo', '-target:winexe', '-r:System.Windows.Forms.dll', '-r:System.Drawing.dll',
+           '-out:build\launcher\Rez3D.exe', 'launcher\Rez3DLauncher.cs', 'build\launcher\AssemblyInfo.cs')
 Run $csc @('-nologo', '-out:build\tools\RunHidden.exe', 'tools\RunHidden.cs')
 
-# Release layout: Rez3D.exe (setup, then the launcher) and the docs. install.ps1 /
-# uninstall.ps1 stay in the repository for source builds.
+# Release layout: Rez3D.exe (setup, then the launcher), the files it installs in
+# bin\, and the docs. install.ps1 / uninstall.ps1 stay in the repository for source builds.
 $name = "rez-infinite-3d-$Version"
 $stage = Join-Path $root "dist\$name"
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item 'build\launcher\Rez3D.exe' $stage
+Copy-Item 'build\launcher\bin' $stage -Recurse
 if ($leia) { Copy-Item 'licenses' $stage -Recurse }
 Copy-Item 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md' $stage
 

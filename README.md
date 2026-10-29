@@ -43,9 +43,10 @@ version (`version.txt` in the game folder) and `REZ\rez3d.log`.
 ## Install
 
 1. Download the latest release zip and extract it anywhere.
-2. Run **`Rez3D.exe`**. It finds the game in your Steam libraries or GOG
-   installs (or choose **browse for the game** and pick the folder that
-   contains `Rez-infinite.exe`), and **install 3d** patches it.
+2. Run **`Rez3D.exe`** (it installs the files in the `bin` folder next to it).
+   It finds the game in your Steam libraries or GOG installs (or choose
+   **browse for the game** and pick the folder that contains
+   `Rez-infinite.exe`), and **install 3d** patches it.
 3. The same window becomes the launcher: pick your display format and choose
    **play**. Steam must be running for the Steam version. From then on, start
    `Rez3D.exe` in the game folder.
@@ -255,8 +256,8 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 0.1.0
 ```
 
 This builds the runtime, the controller bridge and the launcher, and writes
-`dist\rez-infinite-3d-0.1.0.zip`. `build\launcher\Rez3D.exe` carries the
-other files inside it and installs them like the release does;
+`dist\rez-infinite-3d-0.1.0.zip`. `build\launcher\Rez3D.exe` installs the
+files in `build\launcher\bin` like the release does;
 `install.ps1` / `uninstall.ps1` also work straight from a source build.
 
 The Leia SR loader (`leia/`, `rez3d_leia_sr.dll`) also needs a checkout of

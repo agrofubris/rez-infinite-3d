@@ -50,8 +50,10 @@ version (`version.txt` in the game folder) and `REZ\rez3d.log`.
    **play**. Steam must be running for the Steam version. From then on, start
    `Rez3D.exe` in the game folder.
 
-To update, run the new release's `Rez3D.exe` the same way (**update 3d**); your
-settings are kept. To remove it, choose **uninstall 3d** in the launcher (press
+`Rez3D.exe` remembers your game folder, so it can live anywhere (and in
+shortcuts). To update, run the new release's `Rez3D.exe`: it opens the launcher
+for your game and **play** installs the new build first; your settings are kept.
+To remove it, choose **uninstall 3d** in the launcher (press
 it twice): the original files come back. Verifying the game files in Steam/GOG
 also restores the originals. A game update may do the same, so install again
 afterwards.

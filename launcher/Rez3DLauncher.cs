@@ -92,6 +92,7 @@ namespace Rez3D
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
         string gameRoot;              // null on the setup screen
+        bool updateOnPlay;            // this exe carries a different build than the game has
         DateTime uninstallArmed;      // the second press within 5 s removes the 3D add-on
         readonly List<string> iniPaths = new List<string>();
         readonly List<Item> items = new List<Item>();
@@ -139,6 +140,8 @@ namespace Rez3D
         void EnterLauncher(string root)
         {
             gameRoot = root;
+            Installer.RememberedRoot = Path.GetFullPath(root).TrimEnd('\\');
+            updateOnPlay = Installer.NeedsUpdate(root);
             iniPaths.Clear();
             iniPaths.Add(Path.Combine(root, @"REZ\rez3d.ini"));
             var ax = Path.Combine(root, @"AX\Engine\Binaries\ThirdParty\OpenVR\OpenVRv1_0_2\Win64\rez3d.ini");
@@ -148,6 +151,11 @@ namespace Rez3D
             selected = 0;
             BuildItems();
             Load_();
+            if (updateOnPlay)
+            {
+                items[0].Help = "installs this build into the game first, then starts rez infinite in 3d";
+                if (status.Length == 0) status = "this rez3d.exe is a different build: play installs it";
+            }
             InitPad();
             Invalidate();
         }
@@ -379,6 +387,17 @@ namespace Rez3D
         {
             if (gameRoot == null) return;  // setup screen: nothing installed yet
             Save();
+            if (updateOnPlay)
+            {
+                // Run from a build folder or a newer release: put this build in the game first
+                try { Installer.Install(gameRoot); updateOnPlay = false; }
+                catch (Exception e)
+                {
+                    status = "could not update the game: " + e.Message.ToLowerInvariant();
+                    Invalidate();
+                    return;
+                }
+            }
             var exe = Path.Combine(gameRoot, "Rez-infinite.exe");
             if (!File.Exists(exe)) exe = Path.Combine(gameRoot, @"REZ\REZ.exe");
             try
@@ -632,6 +651,64 @@ namespace Rez3D
 
         public static bool IsInstalled(string root) { return File.Exists(Path.Combine(root, Manifest)); }
 
+        // The game folder last installed into or launched, so a Rez3D.exe started from
+        // anywhere (the release zip, a build folder, a shortcut) opens the launcher for it
+        const string SettingsKey = @"HKEY_CURRENT_USER\Software\Rez Infinite 3D";
+        public static string RememberedRoot
+        {
+            get
+            {
+                try { return Microsoft.Win32.Registry.GetValue(SettingsKey, "GameRoot", null) as string; }
+                catch { return null; }
+            }
+            set
+            {
+                try { Microsoft.Win32.Registry.SetValue(SettingsKey, "GameRoot", value); } catch { }
+            }
+        }
+
+        static string SelfPath { get { return System.Reflection.Assembly.GetExecutingAssembly().Location; } }
+
+        // True when this exe runs from somewhere else than root\Rez3D.exe
+        public static bool RunningOutside(string root)
+        {
+            return !string.Equals(Path.GetFullPath(SelfPath), Path.Combine(Path.GetFullPath(root).TrimEnd('\\'), "Rez3D.exe"),
+                                  StringComparison.OrdinalIgnoreCase);
+        }
+
+        // True when the game's installed files differ from the ones this exe carries:
+        // play from a newer build (or the release zip) then installs them first
+        public static bool NeedsUpdate(string root)
+        {
+            Func<string, byte[], bool> differs = (path, data) =>
+            {
+                if (data == null) return false;
+                if (!File.Exists(path)) return true;
+                var have = File.ReadAllBytes(path);
+                if (have.Length != data.Length) return true;
+                for (int i = 0; i < have.Length; i++) if (have[i] != data[i]) return true;
+                return false;
+            };
+            try
+            {
+                var shim = Payload("openvr_api.dll", true);
+                var pad = Payload("xinput1_3.dll", true);
+                var leia = Payload("rez3d_leia_sr.dll", false);
+                if (differs(Path.Combine(root, @"REZ\openvr_api.dll"), shim) ||
+                    differs(Path.Combine(root, @"REZ\xinput1_3.dll"), pad) ||
+                    differs(Path.Combine(root, @"REZ\rez3d_leia_sr.dll"), leia))
+                    return true;
+                var axvr = Path.Combine(root, AxVr);
+                if (Directory.Exists(axvr) && (differs(Path.Combine(axvr, "openvr_api.dll"), shim) ||
+                                               differs(Path.Combine(axvr, "rez3d_leia_sr.dll"), leia)))
+                    return true;
+                var axbin = Path.Combine(root, AxBin);
+                if (Directory.Exists(axbin) && differs(Path.Combine(axbin, "xinput1_3.dll"), pad)) return true;
+                return RunningOutside(root) && differs(Path.Combine(root, "Rez3D.exe"), File.ReadAllBytes(SelfPath));
+            }
+            catch { return false; }
+        }
+
         // Steam libraries (libraryfolders.vdf) and GOG installs (registry), as game-path.ps1
         public static List<string> FindGameRoots()
         {
@@ -674,6 +751,8 @@ namespace Rez3D
                 }
                 catch { }
             }
+            var remembered = RememberedRoot;
+            if (remembered != null) candidates.Insert(0, remembered);
             var found = new List<string>();
             foreach (var c in candidates)
             {
@@ -710,6 +789,7 @@ namespace Rez3D
             var ini = Payload("rez3d.ini", true);
 
             var manifest = Path.Combine(root, Manifest);
+            bool firstInstall = !File.Exists(manifest);
             var entries = File.Exists(manifest) ? new List<string>(File.ReadAllLines(manifest)) : new List<string>();
             entries.RemoveAll(string.IsNullOrWhiteSpace);
             Func<string, string> rel = p => p.Substring(root.Length).TrimStart('\\');
@@ -759,14 +839,16 @@ namespace Rez3D
 
             // Steam copies: started outside Steam, the game restarts itself through Steam and
             // loses the vr=1 argument. steam_appid.txt (Valve's documented way to run a Steam
-            // game straight from its folder) keeps it in this process.
+            // game straight from its folder) keeps it in this process. First install only:
+            // an update never brings back a file the player removed.
             var appid = Path.Combine(root, "steam_appid.txt");
-            if (File.Exists(Path.Combine(root, "steam_api64.dll")) && !File.Exists(appid))
+            if (firstInstall && File.Exists(Path.Combine(root, "steam_api64.dll")) && !File.Exists(appid))
             {
                 File.WriteAllText(appid, "636450", Encoding.ASCII);
                 entries.Add("added|" + rel(appid));
             }
-            File.WriteAllLines(manifest, entries.ToArray(), new UTF8Encoding(true));
+            File.WriteAllLines(manifest, entries.ToArray(), new UTF8Encoding(false));
+            RememberedRoot = root;
             return "installed into " + root;
         }
 
@@ -864,7 +946,14 @@ namespace Rez3D
                 if (File.Exists(Path.Combine(sibling, @"REZ\REZ.exe"))) root = sibling;
             }
             Application.EnableVisualStyles();
-            // Run from the release zip (or a game without 3D yet): the setup screen
+            // Started outside a game folder (a build folder, the release zip, a shortcut):
+            // the game this exe last installed into or launched
+            if (!Installer.IsGameRoot(root))
+            {
+                var remembered = Installer.RememberedRoot;
+                if (Installer.IsGameRoot(remembered) && Installer.IsInstalled(remembered)) root = remembered;
+            }
+            // A game without 3D yet, or none known: the setup screen
             List<string> setupRoots = null;
             if (!Installer.IsGameRoot(root) || !Installer.IsInstalled(root))
             {

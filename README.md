@@ -224,7 +224,7 @@ OpenVR folder. The launcher covers the common ones. Others:
 
 | Key | Meaning |
 | --- | --- |
-| `Monitor` | 0-based display index |
+| `Monitor` | display to play on: 0 = your primary display, then the others in Windows' order |
 | `VSync`, `FramePacing` | sync to the display; hold the game to its refresh like a VR compositor |
 | `FPS` | refresh rate reported to the game (0 = the monitor's) |
 | `UnmuteOnStart` | 1 = clear a mute Windows remembered for the game in the volume mixer |

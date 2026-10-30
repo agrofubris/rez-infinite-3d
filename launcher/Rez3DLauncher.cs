@@ -296,7 +296,7 @@ namespace Rez3D
             Num("gamma", "Gamma", 0.5, 2.0, 0.05, 1, 2, "",
                 "midtone brightness. above 1 = brighter midtones");
             int screens = Math.Max(1, Screen.AllScreens.Length);
-            Num("monitor", "Monitor", 0, screens - 1, 1, 0, 0, "", "display to play on (0 = first)");
+            Num("monitor", "Monitor", 0, screens - 1, 1, 0, 0, "", "display to play on (0 = your primary display)");
             Choice("vsync", "VSync", new[] { "1", "0" }, new[] { "on", "off" }, "1", "sync to the display refresh");
             Choice("frame pacing", "FramePacing", new[] { "1", "0" }, new[] { "on", "off" }, "1",
                    "hold the game to the display rate like a vr compositor");

@@ -229,63 +229,48 @@ static int ParseFormat(const std::string& s) {
     return FMT_SBS;
 }
 
-struct MonitorEnumData {
-    RECT rect{};
-    int nativeW = 0;
-    int nativeH = 0;
-    wchar_t device[32] = {};
-    int index = 0;
-    int wanted = 0;
-    bool found = false;
-};
-
-static BOOL CALLBACK MonitorEnumProc(HMONITOR hMon, HDC, LPRECT, LPARAM lp) {
-    auto* data = reinterpret_cast<MonitorEnumData*>(lp);
-    if (data->index == data->wanted) {
-        MONITORINFOEXW mi{};
+// Monitor N: 0 is the primary display, then the others in Windows' order (the
+// launcher numbers them the same way). Windows' own order isn't primary-first, and
+// testers with several monitors picked the wrong one. Out of range: the primary.
+static HMONITOR MonitorByIndex(int index) {
+    std::vector<HMONITOR> all;
+    EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR h, HDC, LPRECT, LPARAM lp) -> BOOL {
+        reinterpret_cast<std::vector<HMONITOR>*>(lp)->push_back(h);
+        return TRUE;
+    }, (LPARAM)&all);
+    std::stable_partition(all.begin(), all.end(), [](HMONITOR h) {
+        MONITORINFO mi{};
         mi.cbSize = sizeof(mi);
-        if (GetMonitorInfoW(hMon, &mi)) {
-            data->rect = mi.rcMonitor;
-            wcsncpy_s(data->device, mi.szDevice, _TRUNCATE);
-            DISPLAY_DEVICEW dd{};
-            dd.cb = sizeof(dd);
-            if (EnumDisplayDevicesW(mi.szDevice, 0, &dd, 0)) {
-                DEVMODEW dm{};
-                dm.dmSize = sizeof(dm);
-                if (EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm)) {
-                    data->nativeW = (int)dm.dmPelsWidth;
-                    data->nativeH = (int)dm.dmPelsHeight;
-                }
-            }
-            if (data->nativeW == 0) {
-                data->nativeW = mi.rcMonitor.right - mi.rcMonitor.left;
-                data->nativeH = mi.rcMonitor.bottom - mi.rcMonitor.top;
-            }
-            data->found = true;
-        }
-        return FALSE;
-    }
-    data->index++;
-    return TRUE;
+        return GetMonitorInfoW(h, &mi) && (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
+    });
+    if (all.empty()) return nullptr;
+    return index >= 0 && index < (int)all.size() ? all[index] : all[0];
 }
 
 bool GetMonitorInfoByIndex(int index, RECT& rect, int& nativeW, int& nativeH) {
-    MonitorEnumData data;
-    data.wanted = index;
-    EnumDisplayMonitors(nullptr, nullptr, MonitorEnumProc, (LPARAM)&data);
-    if (!data.found) return false;
-    rect = data.rect;
-    nativeW = data.nativeW;
-    nativeH = data.nativeH;
+    MONITORINFOEXW mi{};
+    mi.cbSize = sizeof(mi);
+    HMONITOR mon = MonitorByIndex(index);
+    if (!mon || !GetMonitorInfoW(mon, &mi)) return false;
+    rect = mi.rcMonitor;
+    DEVMODEW dm{};
+    dm.dmSize = sizeof(dm);
+    if (EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm) && dm.dmPelsWidth) {
+        nativeW = (int)dm.dmPelsWidth;
+        nativeH = (int)dm.dmPelsHeight;
+    } else {
+        nativeW = mi.rcMonitor.right - mi.rcMonitor.left;
+        nativeH = mi.rcMonitor.bottom - mi.rcMonitor.top;
+    }
     return true;
 }
 
 static bool GetMonitorDeviceName(int index, wchar_t* name, size_t count) {
-    MonitorEnumData data;
-    data.wanted = index;
-    EnumDisplayMonitors(nullptr, nullptr, MonitorEnumProc, (LPARAM)&data);
-    if (!data.found) return false;
-    wcsncpy_s(name, count, data.device, _TRUNCATE);
+    MONITORINFOEXW mi{};
+    mi.cbSize = sizeof(mi);
+    HMONITOR mon = MonitorByIndex(index);
+    if (!mon || !GetMonitorInfoW(mon, &mi)) return false;
+    wcsncpy_s(name, count, mi.szDevice, _TRUNCATE);
     return true;
 }
 

@@ -283,8 +283,8 @@ namespace Rez3D
                 "experimental: lower depth in detected menus. can misfire in sparse gameplay");
             Num("field of view", "FovH", 60, 110, 5, 85, 0, "°",
                 "horizontal view angle. 85 with lens shift 7 frames the avatar like the original game");
-            Num("render scale", "RenderScale", 0.5, 2.0, 0.25, 1.5, 2, "x",
-                "per eye resolution. above 1 = supersampling, less shimmer on thin lines");
+            Num("render scale (reticle)", "RenderScale", 0.5, 2.0, 0.25, 1.5, 2, "x",
+                "per eye resolution. lower = bigger reticle but softer scene. 1.5 = small, sharp; 0.75 = big, softer");
             Num("interlace filter", "InterlaceFilter", 0, 1, 0.25, 0.5, 2, "",
                 "blends each eye over the rows it owns. lower = sharper, more line flicker");
             Num("crosstalk", "Crosstalk", 0, 0.3, 0.005, 0, 3, "",

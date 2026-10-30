@@ -137,7 +137,9 @@ launcher's black window is left with nothing running for 20 seconds.
 Each eye only gets every other row, and Rez is made of thin lines.
 
 - **Render scale** 1.5 (default) supersamples each eye. 2.0 is sharper if
-  your GPU has headroom.
+  your GPU has headroom. The game draws its VR reticle at a fixed pixel size,
+  so lowering render scale also makes the reticle bigger on screen (and the
+  scene softer): 1.5 is small and sharp, 0.75 is big and soft.
 - **Interlace filter** blends each eye over the rows it owns, so lines fade
   evenly instead of vanishing or flickering. 0 = sharpest, 1 = softest.
 - **Crosstalk** subtracts the other eye's leak through the glasses. Raise it

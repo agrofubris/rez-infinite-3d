@@ -621,7 +621,7 @@ static void InitRuntimeConfig() {
 // IVRSystem (015 signatures)
 // ---------------------------------------------------------------------------
 static void __stdcall Sys_GetRecommendedRenderTargetSize(uint32_t* w, uint32_t* h) {
-    LogPrintf("sys.GetRecommendedRenderTargetSize");
+    LogPrintf("sys.GetRecommendedRenderTargetSize -> %ux%u", g_eyeW, g_eyeH);
     if (w) *w = g_eyeW;
     if (h) *h = g_eyeH;
 }

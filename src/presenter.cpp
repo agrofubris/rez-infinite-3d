@@ -31,7 +31,7 @@ enum StereoFormat {
 
 static const char* kCompositeHlsl = R"(
 cbuffer Params : register(b0) {
-    float4 rect0;      // eye 0 uv min.xy / max.zw in the slot texture
+    float4 rect0;      // eye 0 uv min.xy / max.zw in its slice
     float4 rect1;      // eye 1
     float4 clamp0;     // eye 0 sampling clamp (half texel inside its region)
     float4 clamp1;
@@ -41,7 +41,7 @@ cbuffer Params : register(b0) {
     float4 color;      // x = crosstalk, y = black lift, z = brightness, w = gamma
     int format; int outW; int outH; int pad;
 };
-Texture2D tex : register(t0);
+Texture2DArray tex : register(t0);
 Texture2D osd : register(t1);
 SamplerState smp : register(s0);
 
@@ -54,7 +54,7 @@ float3 Fetch(int e, float2 uv) {
     float4 r = e == 0 ? rect0 : rect1;
     float4 c = e == 0 ? clamp0 : clamp1;
     float2 t = clamp(lerp(r.xy, r.zw, uv), c.xy, c.zw);
-    return tex.SampleLevel(smp, t, 0).rgb;
+    return tex.SampleLevel(smp, float3(t, (float)e), 0).rgb;
 }
 
 // Tent filter over the area one displayed pixel stands for. On an interlaced
@@ -923,6 +923,26 @@ void Presenter::SubmitEye(int eye, ID3D11Texture2D* texture, const EyeBounds& bo
                   desc.SampleDesc.Count, desc.ArraySize);
     }
 
+    // The game can add its own VR supersampling on top of the size we ask for.
+    // Say so once: oversized captures are what push the GPU path over D3D11's
+    // texture limit and cost us the weaver.
+    {
+        int outW = 0, outH = 0;
+        RECT rect{};
+        GetOutputSize(m_cfg, outW, outH, rect);
+        int wantW = 0, wantH = 0;
+        ComputeEyeSize(m_cfg, outW, outH, wantW, wantH);
+        static UINT loggedW = 0, loggedH = 0;
+        if (wantW > 0 && ((int)desc.Width != wantW || (int)desc.Height != wantH) &&
+            (loggedW != desc.Width || loggedH != desc.Height)) {
+            loggedW = desc.Width;
+            loggedH = desc.Height;
+            LogPrintf("SubmitEye: the game submits %ux%u, %.2fx the %dx%d asked for: its own VR supersampling is "
+                      "above 100%%",
+                      desc.Width, desc.Height, (float)desc.Width / (float)wantW, wantW, wantH);
+        }
+    }
+
     // Both paths need a single-sampled source
     ID3D11Texture2D* src = texture;
     UINT srcSub = subresource;
@@ -1084,10 +1104,10 @@ bool Presenter::SubmitEyeGpu(int eye, ID3D11Device* dev, ID3D11DeviceContext* ct
     if (m_slotDevice != dev || m_slotEyeW != desc.Width || m_slotEyeH != desc.Height || m_slotFormat != family) {
         ReleaseGameSlots();
         D3D11_TEXTURE2D_DESC td{};
-        td.Width = desc.Width * 2;
+        td.Width = desc.Width;
         td.Height = desc.Height;
         td.MipLevels = 1;
-        td.ArraySize = 1;
+        td.ArraySize = 2;
         td.Format = family;
         td.SampleDesc.Count = 1;
         td.Usage = D3D11_USAGE_DEFAULT;
@@ -1131,7 +1151,8 @@ bool Presenter::SubmitEyeGpu(int eye, ID3D11Device* dev, ID3D11DeviceContext* ct
                 dxgiDev->Release();
             }
         }
-        LogPrintf("SubmitEye: GPU path, %d shared slots %ux%u fmt=%d", kSlots, td.Width, td.Height, (int)family);
+        LogPrintf("SubmitEye: GPU path, %d shared slots %ux%u x2 slices fmt=%d", kSlots, td.Width, td.Height,
+                  (int)family);
     }
 
     if (m_writeSlot < 0) {
@@ -1155,7 +1176,7 @@ bool Presenter::SubmitEyeGpu(int eye, ID3D11Device* dev, ID3D11DeviceContext* ct
                                         (unsigned long)hr);
         return true;
     }
-    ctx->CopySubresourceRegion(slot.tex, 0, eye * desc.Width, 0, 0, src, srcSub, nullptr);
+    ctx->CopySubresourceRegion(slot.tex, D3D11CalcSubresource(0, eye, 1), 0, 0, 0, src, srcSub, nullptr);
     slot.mutex->ReleaseSync(0);
 
     m_writeBounds[eye] = bounds;
@@ -1425,8 +1446,9 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
         if (SUCCEEDED(hr)) {
             D3D11_SHADER_RESOURCE_VIEW_DESC sv{};
             sv.Format = srvFmt;
-            sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-            sv.Texture2D.MipLevels = 1;
+            sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+            sv.Texture2DArray.MipLevels = 1;
+            sv.Texture2DArray.ArraySize = 2;
             hr = m_device->CreateShaderResourceView(ps.tex, &sv, &ps.srv);
         }
         if (FAILED(hr)) {
@@ -1459,11 +1481,11 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
     const int compH = weave ? (m_outH & ~1) : m_outH;
     CompositeParams p{};
     for (int e = 0; e < 2; e++) {
-        // Eye e occupies the half [e*0.5, e*0.5+0.5] of the slot texture
+        // Eye e occupies slice e of the slot texture
         const EyeBounds& b = bounds[e];
-        p.rect[e][0] = (e + b.uMin) * 0.5f;
+        p.rect[e][0] = b.uMin;
         p.rect[e][1] = b.vMin;
-        p.rect[e][2] = (e + b.uMax) * 0.5f;
+        p.rect[e][2] = b.uMax;
         p.rect[e][3] = b.vMax;
         // Keep bilinear taps inside this eye's half so the eyes never bleed together
         p.clampRect[e][0] = (std::min)(p.rect[e][0], p.rect[e][2]) + 0.5f / tw;

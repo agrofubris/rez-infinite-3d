@@ -108,8 +108,8 @@ private:
         UINT mipLevels = 1;
     };
 
-    // GPU path: triple-buffered shared textures (keyed mutex), each holding
-    // both eyes side by side. Game side writes, presenter side samples.
+    // GPU path: triple-buffered shared textures (keyed mutex), one eye per
+    // array slice. Game side writes, presenter side samples.
     static const int kSlots = 3;
     struct GameSlot {
         ID3D11Texture2D* tex = nullptr;

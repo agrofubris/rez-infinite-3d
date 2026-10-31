@@ -302,15 +302,22 @@ int GetMonitorWidthMM(const StereoConfig& cfg) {
     // that reports ~120 mm gives five times the intended parallax (an SR panel report).
     // The first detailed descriptor holds the size in mm only when it is a timing
     // descriptor (nonzero pixel clock); otherwise those bytes are text. Byte 21 is cm.
-    const bool dtd = (edid[54] | edid[55]) != 0;
-    const int dtdMM = dtd ? (edid[66] | ((edid[68] & 0xF0) << 4)) : 0;
-    const int cmMM = edid[21] * 10;
+    // The EDID describes the panel unrotated: on a monitor turned to portrait the
+    // visible width is the panel's height (a tester's portrait side screen read 531 mm).
     int px = 0;
+    bool rotated = false;
     {
         DEVMODEW dm{};
         dm.dmSize = sizeof(dm);
-        if (EnumDisplaySettingsW(device, ENUM_REGISTRY_SETTINGS, &dm)) px = (int)dm.dmPelsWidth;
+        if (EnumDisplaySettingsW(device, ENUM_REGISTRY_SETTINGS, &dm)) {
+            px = (int)dm.dmPelsWidth;
+            rotated = (dm.dmFields & DM_DISPLAYORIENTATION) &&
+                      (dm.dmDisplayOrientation == DMDO_90 || dm.dmDisplayOrientation == DMDO_270);
+        }
     }
+    const bool dtd = (edid[54] | edid[55]) != 0;
+    const int dtdMM = !dtd ? 0 : rotated ? (edid[67] | ((edid[68] & 0x0F) << 8)) : (edid[66] | ((edid[68] & 0xF0) << 4));
+    const int cmMM = (rotated ? edid[22] : edid[21]) * 10;
     // Believable: at least 150 mm and 1.5-12.5 pixels per mm (about 40-320 dpi)
     auto plausible = [px](int mm) {
         if (mm < 150) return false;
@@ -327,8 +334,9 @@ int GetMonitorWidthMM(const StereoConfig& cfg) {
         mm = cmMM;
         used = "basic size (cm)";
     }
-    sprintf_s(g_widthNote, "EDID of %ls: detailed timing %d mm%s, basic size %d mm, desktop %d px -> %s", device,
-              dtdMM, dtd ? "" : " (not a timing descriptor)", cmMM, px, used);
+    sprintf_s(g_widthNote, "EDID of %ls%s: detailed timing %d mm%s, basic size %d mm, desktop %d px -> %s", device,
+              rotated ? " (rotated: panel height used)" : "", dtdMM, dtd ? "" : " (not a timing descriptor)", cmMM, px,
+              used);
     return mm;
 }
 
@@ -629,6 +637,7 @@ void Presenter::CreateWindowOnMonitor() {
         if (!host) Sleep(100);
     }
     if (host) {
+        PlaceGameWindow(host);
         RECT rc{};
         GetClientRect(host, &rc);
         SetWindowLongW(host, GWL_STYLE, GetWindowLongW(host, GWL_STYLE) | WS_CLIPCHILDREN);
@@ -927,19 +936,25 @@ void Presenter::SubmitEye(int eye, ID3D11Texture2D* texture, const EyeBounds& bo
     // Say so once: oversized captures are what push the GPU path over D3D11's
     // texture limit and cost us the weaver.
     {
-        int outW = 0, outH = 0;
-        RECT rect{};
-        GetOutputSize(m_cfg, outW, outH, rect);
-        int wantW = 0, wantH = 0;
-        ComputeEyeSize(m_cfg, outW, outH, wantW, wantH);
-        static UINT loggedW = 0, loggedH = 0;
-        if (wantW > 0 && ((int)desc.Width != wantW || (int)desc.Height != wantH) &&
-            (loggedW != desc.Width || loggedH != desc.Height)) {
-            loggedW = desc.Width;
-            loggedH = desc.Height;
-            LogPrintf("SubmitEye: the game submits %ux%u, %.2fx the %dx%d asked for: its own VR supersampling is "
-                      "above 100%%",
-                      desc.Width, desc.Height, (float)desc.Width / (float)wantW, wantW, wantH);
+        // The size asked for is fixed at start: work it out once, not on every submit
+        static int wantW = -1, wantH = 0;
+        if (wantW < 0) {
+            int outW = 0, outH = 0;
+            RECT rect{};
+            GetOutputSize(m_cfg, outW, outH, rect);
+            ComputeEyeSize(m_cfg, outW, outH, wantW, wantH);
+        }
+        // Per eye: Area X submits both eyes in one double-wide texture with bounds
+        const int gotW = (int)(desc.Width * fabsf(bounds.uMax - bounds.uMin) + 0.5f);
+        const int gotH = (int)(desc.Height * fabsf(bounds.vMax - bounds.vMin) + 0.5f);
+        static int loggedW = 0, loggedH = 0;
+        if (wantW > 0 && (abs(gotW - wantW) > wantW / 50 || abs(gotH - wantH) > wantH / 50) &&
+            (loggedW != gotW || loggedH != gotH)) {
+            loggedW = gotW;
+            loggedH = gotH;
+            LogPrintf("SubmitEye: the game submits each eye at %dx%d, %.2fx the %dx%d asked for: its own VR "
+                      "supersampling is not 100%%",
+                      gotW, gotH, (float)gotW / (float)wantW, wantW, wantH);
         }
     }
 
@@ -1292,10 +1307,45 @@ HWND Presenter::FindGameWindow() {
 // window is topmost and the launcher's mirror window is demoted, so the mirror
 // can never cover the 3D output. When the user switches to another app we drop
 // below it, so Alt+Tab works and nothing of the game stays on top.
+// The 3D view is drawn inside the game's window, so it appears wherever the game's
+// launcher put that window. Everything else (render size, display mode, screen
+// width) comes from the Monitor setting: with several monitors the two disagreed
+// and the picture came out stretched, or the Leia weave ran on the wrong screen.
+// Move the game's top-level window onto the chosen monitor, filling it.
+void Presenter::PlaceGameWindow(HWND host) {
+    HMONITOR want = MonitorByIndex(m_cfg.monitor);
+    HWND root = GetAncestor(host, GA_ROOT);
+    if (!want || !root || MonitorFromWindow(root, MONITOR_DEFAULTTONEAREST) == want) return;
+    MONITORINFOEXW mi{};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(want, &mi)) return;
+    const RECT& r = mi.rcMonitor;
+    // Asynchronous: these windows belong to other threads (the launcher's is another
+    // process), and our thread must never wait on them
+    const UINT flags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS;
+    SetWindowPos(root, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, flags);
+    if (host != root) {
+        // The game's own view fills the launcher's borderless window, which is about
+        // to be the monitor's size (the move above hasn't happened yet)
+        SetWindowPos(host, nullptr, 0, 0, r.right - r.left, r.bottom - r.top, flags);
+    }
+    static int logged = 0;
+    if (logged++ < 5)
+        LogPrintf("Presenter: moved the game window to monitor %d (%ls, %ldx%ld)", m_cfg.monitor, mi.szDevice,
+                  r.right - r.left, r.bottom - r.top);
+}
+
 void Presenter::ManageZOrder() {
     if (!m_hwnd) return;
     if (m_hostHwnd) {
-        // Inside the game's window: just follow its size
+        // Inside the game's window: keep it on the chosen monitor (checked once a
+        // second, in case the game moves it back) and follow its size
+        static ULONGLONG lastPlace = 0;
+        const ULONGLONG now = GetTickCount64();
+        if (now - lastPlace >= 1000) {
+            lastPlace = now;
+            PlaceGameWindow(m_hostHwnd);
+        }
         RECT host{}, ours{};
         GetClientRect(m_hostHwnd, &host);
         GetClientRect(m_hwnd, &ours);

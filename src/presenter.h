@@ -76,6 +76,7 @@ private:
     void PumpMessages();
     void CheckWindowOrder();
     void ManageZOrder();
+    void PlaceGameWindow(HWND host);
     HWND FindGameWindow();
     void PresentLatest();
     void PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBounds* bounds);

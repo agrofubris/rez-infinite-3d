@@ -140,6 +140,10 @@ Each eye only gets every other row, and Rez is made of thin lines.
   your GPU has headroom. The game draws its VR reticle at a fixed pixel size,
   so lowering render scale also makes the reticle bigger on screen (and the
   scene softer): 1.5 is small and sharp, 0.75 is big and soft.
+  Keep **Rez's own VR supersampling at 100 %** (in the game's VR settings) and
+  use render scale instead: the two multiply, and at 250 % a 4K display asks
+  the GPU for 6.25 times the pixels per eye. `REZ\rez3d.log` says so
+  ("the game submits each eye at …").
 - **Interlace filter** blends each eye over the rows it owns, so lines fade
   evenly instead of vanishing or flickering. 0 = sharpest, 1 = softest.
 - **Crosstalk** subtracts the other eye's leak through the glasses. Raise it

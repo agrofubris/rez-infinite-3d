@@ -295,7 +295,7 @@ namespace Rez3D
                 "light gain to compensate for the glasses");
             Num("gamma", "Gamma", 0.5, 2.0, 0.05, 1, 2, "",
                 "midtone brightness. above 1 = brighter midtones");
-            int screens = Math.Max(1, Screen.AllScreens.Length);
+            int screens = Math.Max(1, Monitors.List.Count);
             Num("monitor", "Monitor", 0, screens - 1, 1, 0, 0, "", "display to play on (0 = your primary display)");
             Choice("vsync", "VSync", new[] { "1", "0" }, new[] { "on", "off" }, "1", "sync to the display refresh");
             Choice("frame pacing", "FramePacing", new[] { "1", "0" }, new[] { "on", "off" }, "1",
@@ -373,6 +373,16 @@ namespace Rez3D
             }
             if (it.Key == "MenuSeparation" && it.Num < 0) return "off";
             if (it.Key == "Crosstalk" && it.Num == 0) return "off";
+            if (it.Key == "Monitor")
+            {
+                // "1  3840x2160", with the monitor's name in the help line
+                int i = (int)it.Num;
+                var m = i >= 0 && i < Monitors.List.Count ? Monitors.List[i] : null;
+                it.Help = m == null ? "display to play on (0 = your primary display)"
+                                    : "display to play on: " + m.Name + (m.Primary ? " (primary)" : "") +
+                                      ". the game moves there";
+                return m == null ? i.ToString(Inv) : i.ToString(Inv) + "  " + m.Width + "x" + m.Height;
+            }
             return it.Num.ToString("F" + it.Decimals, Inv) + it.Unit;
         }
 
@@ -922,6 +932,97 @@ namespace Rez3D
             Process.Start(new ProcessStartInfo(tmp, string.Format("--uninstall \"{0}\" --wait-pid {1}", root,
                                                                   Process.GetCurrentProcess().Id))
                           { UseShellExecute = false });
+        }
+    }
+
+    // The monitors as the 3D runtime numbers them: the primary display first, then the
+    // others in Windows' order. Each with its real display mode (this process isn't
+    // DPI-aware, so Screen.Bounds would be scaled) and the name from its EDID.
+    class Monitors
+    {
+        public string Device, Name;
+        public int Width, Height;
+        public bool Primary;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct DEVMODE
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+            public short dmSpecVersion, dmDriverVersion, dmSize, dmDriverExtra;
+            public int dmFields, dmPositionX, dmPositionY, dmDisplayOrientation, dmDisplayFixedOutput;
+            public short dmColor, dmDuplex, dmYResolution, dmTTOption, dmCollate;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+            public short dmLogPixels;
+            public int dmBitsPerPel, dmPelsWidth, dmPelsHeight, dmDisplayFlags, dmDisplayFrequency;
+            public int dmICMMethod, dmICMIntent, dmMediaType, dmDitherType, dmReserved1, dmReserved2;
+            public int dmPanningWidth, dmPanningHeight;
+        }
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct DISPLAY_DEVICE
+        {
+            public int cb;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
+            public int StateFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
+        }
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern bool EnumDisplaySettings(string device, int mode, ref DEVMODE dm);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern bool EnumDisplayDevices(string device, int index, ref DISPLAY_DEVICE dd, int flags);
+
+        static List<Monitors> list;
+        public static List<Monitors> List
+        {
+            get
+            {
+                if (list != null) return list;
+                list = new List<Monitors>();
+                foreach (var s in Screen.AllScreens)  // EnumDisplayMonitors order, like the runtime
+                {
+                    var m = new Monitors { Device = s.DeviceName, Primary = s.Primary, Width = s.Bounds.Width,
+                                           Height = s.Bounds.Height, Name = s.DeviceName.TrimStart('\\', '.') };
+                    var dm = new DEVMODE { dmSize = (short)Marshal.SizeOf(typeof(DEVMODE)) };
+                    if (EnumDisplaySettings(s.DeviceName, -1, ref dm) && dm.dmPelsWidth > 0)  // ENUM_CURRENT_SETTINGS
+                    {
+                        m.Width = dm.dmPelsWidth;
+                        m.Height = dm.dmPelsHeight;
+                    }
+                    var edidName = EdidName(s.DeviceName);
+                    if (!string.IsNullOrEmpty(edidName)) m.Name = edidName;
+                    list.Add(m);
+                }
+                // Primary first, the rest keep their order
+                var ordered = list.FindAll(m => m.Primary);
+                ordered.AddRange(list.FindAll(m => !m.Primary));
+                list = ordered;
+                return list;
+            }
+        }
+
+        // The monitor name descriptor (tag 0xFC) of the monitor's EDID, as the runtime reads it
+        static string EdidName(string device)
+        {
+            try
+            {
+                var dd = new DISPLAY_DEVICE { cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE)) };
+                if (!EnumDisplayDevices(device, 0, ref dd, 1)) return null;  // EDD_GET_DEVICE_INTERFACE_NAME
+                // \\?\DISPLAY#GSM5B09#5&2d9f8a8&0&UID4352#{guid}
+                var parts = dd.DeviceID.Split('#');
+                if (parts.Length < 3) return null;
+                var key = @"SYSTEM\CurrentControlSet\Enum\DISPLAY\" + parts[1] + @"\" + parts[2] + @"\Device Parameters";
+                using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(key))
+                {
+                    var edid = k == null ? null : k.GetValue("EDID") as byte[];
+                    if (edid == null || edid.Length < 128) return null;
+                    for (int d = 54; d <= 108; d += 18)
+                        if (edid[d] == 0 && edid[d + 1] == 0 && edid[d + 3] == 0xFC)
+                            return Encoding.ASCII.GetString(edid, d + 5, 13).Split('\n')[0].Trim().ToLowerInvariant();
+                }
+            }
+            catch { }
+            return null;
         }
     }
 

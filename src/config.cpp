@@ -86,6 +86,7 @@ bool LoadConfig(const char* dllDir, StereoConfig& cfg) {
     cfg.dumpEverySec = getf("dumpeverysec", cfg.dumpEverySec);
     cfg.followAim = getf("followaim", cfg.followAim);
     cfg.followSpeed = getf("followspeed", cfg.followSpeed);
+    cfg.rightStickLook = getf("rightsticklook", cfg.rightStickLook);
     cfg.fps = geti("fps", cfg.fps);
     cfg.nearZ = getf("nearz", cfg.nearZ);
     cfg.farZ = getf("farz", cfg.farZ);

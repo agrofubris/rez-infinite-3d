@@ -42,6 +42,9 @@ struct StereoConfig {
     // reticle, like the camera of the non-VR versions. 0 = off.
     float followAim = 0.0f;         // largest turn in degrees
     float followSpeed = 1.0f;       // how fast the aim estimate moves, 1 = matches the reticle
+    // Right stick look: the right stick turns the view (degrees per second at full
+    // tilt), to find the reticle or follow a boss off to the side. R3 recenters. 0 = off.
+    float rightStickLook = 90.0f;
     int fps = 0;                    // reported HMD display frequency (0 = monitor refresh rate)
     int framePacing = 1;            // WaitGetPoses blocks until the previous frame was presented
     int unmuteOnStart = 1;          // unmute the game's audio session on launch (Windows remembers mutes)

@@ -276,9 +276,10 @@ static HmdMatrix34_t Identity34() {
 // smoothed head turn of at most FollowAim degrees.
 static float g_followX = 0.0f, g_followY = 0.0f;        // aim estimate, -1..1
 static float g_followYaw = 0.0f, g_followPitch = 0.0f;  // smoothed head turn, degrees
+static float g_lookYaw = 0.0f, g_lookPitch = 0.0f;      // right stick look, degrees
 
 static void UpdateFollowAim() {
-    if (g_cfg.followAim <= 0.0f) return;
+    if (g_cfg.followAim <= 0.0f && g_cfg.rightStickLook <= 0.0f) return;
     struct PadState {
         DWORD packet;
         WORD buttons;
@@ -309,7 +310,38 @@ static void UpdateFollowAim() {
         };
         sx = axis(pad.lx);
         sy = axis(pad.ly);
+        // Right stick look: the view turns while the stick is held, R3 recenters
+        if (g_cfg.rightStickLook > 0.0f) {
+            if (pad.buttons & 0x0080) {  // XINPUT_GAMEPAD_RIGHT_THUMB
+                g_lookYaw = g_lookPitch = 0.0f;
+            } else {
+                auto look = [](SHORT v) {
+                    float a = v / 32767.0f;
+                    const float dz = 0.2f;
+                    if (fabsf(a) < dz) return 0.0f;
+                    return (a > 0 ? a - dz : a + dz) / (1.0f - dz);
+                };
+                g_lookYaw -= look(pad.rx) * g_cfg.rightStickLook * dt;
+                g_lookPitch += look(pad.ry) * g_cfg.rightStickLook * dt;
+                if (g_lookPitch > 60.0f) g_lookPitch = 60.0f;
+                if (g_lookPitch < -60.0f) g_lookPitch = -60.0f;
+                while (g_lookYaw > 180.0f) g_lookYaw -= 360.0f;
+                while (g_lookYaw < -180.0f) g_lookYaw += 360.0f;
+            }
+            // Where the view points, logged when it has moved somewhere new
+            static float loggedYaw = 0.0f, loggedPitch = 0.0f;
+            static ULONGLONG lastLog = 0;
+            const ULONGLONG t = GetTickCount64();
+            if (t - lastLog > 1000 &&
+                (fabsf(g_lookYaw - loggedYaw) > 2.0f || fabsf(g_lookPitch - loggedPitch) > 2.0f)) {
+                lastLog = t;
+                loggedYaw = g_lookYaw;
+                loggedPitch = g_lookPitch;
+                LogPrintf("Right stick look: yaw %.0f deg, pitch %.0f deg", g_lookYaw, g_lookPitch);
+            }
+        }
     }
+    if (g_cfg.followAim <= 0.0f) return;
     // The reticle crosses the view in about a second at full tilt
     g_followX += sx * g_cfg.followSpeed * dt;
     g_followY += sy * g_cfg.followSpeed * dt;
@@ -323,8 +355,8 @@ static void UpdateFollowAim() {
 
 static HmdMatrix34_t HeadPose() {
     HmdMatrix34_t m = Identity34();
-    const float yawDeg = g_followYaw + (g_cfg.tracking == "mouse" ? g_yawDeg : 0.0f);
-    const float pitchDeg = g_followPitch + (g_cfg.tracking == "mouse" ? g_pitchDeg : 0.0f);
+    const float yawDeg = g_followYaw + g_lookYaw + (g_cfg.tracking == "mouse" ? g_yawDeg : 0.0f);
+    const float pitchDeg = g_followPitch + g_lookPitch + (g_cfg.tracking == "mouse" ? g_pitchDeg : 0.0f);
     if (yawDeg != 0.0f || pitchDeg != 0.0f) {
         float yaw = (float)(yawDeg * M_PI / 180.0);
         float pitch = (float)(pitchDeg * M_PI / 180.0);

@@ -99,7 +99,7 @@ namespace Rez3D
         int selected;
         string status = "";
         readonly Font titleFont, itemFont, smallFont;
-        readonly int rowH = 29, listTop = 150, valueX = 470;
+        readonly int rowH = 27, listTop = 150, valueX = 470;
         Point dragStart;
 
         // Gamepad: read through the game's own xinput1_3.dll proxy, so what the
@@ -304,12 +304,16 @@ namespace Rez3D
                 "moves the picture down. 7 frames the avatar like the original game, 0 is vr mode's view");
             Num("follow aim", "FollowAim", 0, 30, 5, 0, 0, "°",
                 "the view turns toward your aim, like the original camera. 0 = off");
+            Num("right stick look", "RightStickLook", 0, 180, 15, 90, 0, "°/s",
+                "the right stick turns the view to find the reticle or a boss. r3 recenters. 0 = off");
             Choice("head look", "Tracking", new[] { "off", "mouse" }, new[] { "off", "mouse" }, "off",
                    "experimental: move the camera with the mouse");
             Num("stick speed", "PadStickSpeed", 10, 100, 5, 60, 0, " %",
-                "caps how far the game sees the stick tilt. lower = slower reticle than the game's own minimum");
+                "top aim speed, as a share of the game's range. the smallest tilt always moves");
             Num("stick curve", "PadStickCurve", 1, 3, 0.25, 1.5, 2, "",
                 "above 1 = finer aim near the centre, full speed still at the edge");
+            Choice("fire on rb", "PadFireOnRB", new[] { "0", "1" }, new[] { "off", "on" }, "0",
+                   "the right bumper fires, so your thumb can stay on the right stick");
             items.Add(new Item { Label = "defaults", Kind = Kind.Action, Run = Defaults,
                                  Help = "restore every value above to its default" });
             items.Add(new Item { Label = "uninstall 3d", Kind = Kind.Action, Run = Uninstall,

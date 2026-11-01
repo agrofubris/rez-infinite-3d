@@ -150,8 +150,12 @@ static bool KeyboardAllowed() {
     return GameHasFocus();
 }
 
+// Right-stick directions from the file trigger (RLEFT / RRIGHT / RUP / RDOWN)
+static short g_fileRX = 0, g_fileRY = 0;
+
 static unsigned short VirtualButtons() {
     unsigned short b = 0;
+    g_fileRX = g_fileRY = 0;
     const bool kb = KeyboardAllowed();
 
     // Keyboard mapping
@@ -201,6 +205,11 @@ static unsigned short VirtualButtons() {
                     else if (strcmp(token, "RIGHT") == 0) b |= XINPUT_GAMEPAD_DPAD_RIGHT;
                     else if (strcmp(token, "LB") == 0) b |= XINPUT_GAMEPAD_LEFT_SHOULDER;
                     else if (strcmp(token, "RB") == 0) b |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
+                    else if (strcmp(token, "RS") == 0) b |= XINPUT_GAMEPAD_RIGHT_THUMB;
+                    else if (strcmp(token, "RLEFT") == 0) g_fileRX = -16000;
+                    else if (strcmp(token, "RRIGHT") == 0) g_fileRX = 16000;
+                    else if (strcmp(token, "RUP") == 0) g_fileRY = 16000;
+                    else if (strcmp(token, "RDOWN") == 0) g_fileRY = -16000;
                     ti = 0;
                 } else if (!sep && ti < sizeof(token) - 1) {
                     token[ti++] = c;
@@ -231,6 +240,8 @@ static void VirtualSticks(short& lx, short& ly, short& rx, short& ry) {
     if (b & XINPUT_GAMEPAD_DPAD_RIGHT) lx = 16000;
     if (b & XINPUT_GAMEPAD_DPAD_UP) ly = 16000;
     if (b & XINPUT_GAMEPAD_DPAD_DOWN) ly = -16000;
+    if (g_fileRX) rx = g_fileRX;
+    if (g_fileRY) ry = g_fileRY;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +255,8 @@ struct PadMap {
     float deadzone = 0.15f;
     float stickSpeed = 0.6f;   // PadStickSpeed: % of full deflection the game sees (below its slowest setting)
     float stickCurve = 1.5f;   // PadStickCurve: >1 = finer control near the centre
+    float gameDeadzone = 0.24f;  // PadGameDeadzone: the game's own aim dead zone (XInput's standard 24 %)
+    bool fireOnRB = false;     // PadFireOnRB: the right bumper fires (A), freeing the thumb for the right stick
     bool enabled = true;
 };
 
@@ -266,7 +279,12 @@ static void ApplyIniOverrides(PadMap& m) {
     char path[MAX_PATH];
     sprintf_s(path, "%s\\rez3d.ini", g_dir);
     FILE* f = nullptr;
-    if (fopen_s(&f, path, "r") != 0 || !f) return;
+    if (fopen_s(&f, path, "r") != 0 || !f) {
+        // Area X: this DLL sits in AX\REZAX\Binaries\Win64, its settings with the
+        // runtime in AX\Engine\Binaries\ThirdParty\OpenVR\OpenVRv1_0_2\Win64
+        sprintf_s(path, "%s\\..\\..\\..\\Engine\\Binaries\\ThirdParty\\OpenVR\\OpenVRv1_0_2\\Win64\\rez3d.ini", g_dir);
+        if (fopen_s(&f, path, "r") != 0 || !f) return;
+    }
     char line[256];
     while (fgets(line, sizeof(line), f)) {
         char key[64] = {}, val[64] = {};
@@ -284,6 +302,8 @@ static void ApplyIniOverrides(PadMap& m) {
         if (_stricmp(k, "Deadzone") == 0) m.deadzone = (float)atof(val) / 100.0f;
         if (_stricmp(k, "StickSpeed") == 0) m.stickSpeed = (float)atof(val) / 100.0f;
         if (_stricmp(k, "StickCurve") == 0) m.stickCurve = (float)atof(val);
+        if (_stricmp(k, "GameDeadzone") == 0) m.gameDeadzone = (float)atof(val) / 100.0f;
+        if (_stricmp(k, "FireOnRB") == 0) m.fireOnRB = n != 0;
         if (_stricmp(k, "Bridge") == 0) m.enabled = n != 0;
     }
     fclose(f);
@@ -327,27 +347,37 @@ static void ScanJoysticks() {
     }
 }
 
-// Speed and curve on a -1..1 stick value. The game applies its own dead zone,
-// so values are passed through linearly like a real XInput pad would report
-// them (rescaling past our dead zone made small tilts jump to high speeds).
-static float ShapeStick(float n, const PadMap& m) {
+// Speed and curve on a -1..1 stick value, past our small centring dead zone.
+// The aim stick starts at the game's own dead zone: Rez ignores tilts below ~24 %
+// of the range, and it saw speed x tilt^curve, so most of the stick did nothing
+// (speed 60 %, curve 2: no movement below 63 % tilt). Now speed and curve shape
+// only the range the game responds to, and the smallest tilt already moves.
+static float ShapeStick(float n, const PadMap& m, bool aim) {
     float a = fabsf(n);
+    if (a <= m.deadzone) return 0;  // centring noise
+    a = (a - m.deadzone) / (1.0f - m.deadzone);
     if (a > 1.0f) a = 1.0f;
     if (m.stickCurve != 1.0f && m.stickCurve > 0.0f) a = powf(a, m.stickCurve);
     a *= m.stickSpeed;
+    if (aim && m.gameDeadzone > 0.0f) a = m.gameDeadzone + (1.0f - m.gameDeadzone) * a;
     if (a > 1.0f) a = 1.0f;
     return n < 0 ? -a : a;
 }
 
-static short AxisToThumb(DWORD v, UINT mn, UINT mx, const PadMap& m, bool invert) {
+static short AxisToThumb(DWORD v, UINT mn, UINT mx, const PadMap& m, bool invert, bool aim) {
     if (mx <= mn) return 0;
     float n = ((float)v - (float)mn) / (float)(mx - mn) * 2.0f - 1.0f;
     if (invert) n = -n;
-    if (fabsf(n) < m.deadzone) return 0;  // only hides centring noise
-    return (short)(ShapeStick(n, m) * 32767.0f);
+    return (short)(ShapeStick(n, m, aim) * 32767.0f);
 }
 
-// Real XInput pads get the same speed / curve when they are set
+// The right bumper fires (A) when PadFireOnRB is set
+static void ApplyFireOnRB(XINPUT_GAMEPAD& g, const PadMap& m) {
+    if (m.fireOnRB && (g.wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER))
+        g.wButtons = (WORD)((g.wButtons & ~XINPUT_GAMEPAD_RIGHT_SHOULDER) | XINPUT_GAMEPAD_A);
+}
+
+// Real XInput pads get the same speed / curve / dead-zone handling
 static void ShapeRealThumbs(XINPUT_GAMEPAD& g) {
     static PadMap cfg;
     static bool loaded = false;
@@ -355,10 +385,11 @@ static void ShapeRealThumbs(XINPUT_GAMEPAD& g) {
         ApplyIniOverrides(cfg);
         loaded = true;
     }
-    if (cfg.stickSpeed == 1.0f && cfg.stickCurve == 1.0f) return;
-    SHORT* thumbs[] = { &g.sThumbLX, &g.sThumbLY, &g.sThumbRX, &g.sThumbRY };
-    for (SHORT* t : thumbs)
-        *t = (SHORT)(ShapeStick(*t / 32767.0f, cfg) * 32767.0f);
+    g.sThumbLX = (SHORT)(ShapeStick(g.sThumbLX / 32767.0f, cfg, true) * 32767.0f);
+    g.sThumbLY = (SHORT)(ShapeStick(g.sThumbLY / 32767.0f, cfg, true) * 32767.0f);
+    g.sThumbRX = (SHORT)(ShapeStick(g.sThumbRX / 32767.0f, cfg, false) * 32767.0f);
+    g.sThumbRY = (SHORT)(ShapeStick(g.sThumbRY / 32767.0f, cfg, false) * 32767.0f);
+    ApplyFireOnRB(g, cfg);
 }
 
 static bool ReadBridge(XINPUT_GAMEPAD& g) {
@@ -398,21 +429,22 @@ static bool ReadBridge(XINPUT_GAMEPAD& g) {
     }
 
     // Joystick Y grows downward, XInput Y upward
-    g.sThumbLX = AxisToThumb(info.dwXpos, c.wXmin, c.wXmax, m, false);
-    g.sThumbLY = AxisToThumb(info.dwYpos, c.wYmin, c.wYmax, m, true);
+    g.sThumbLX = AxisToThumb(info.dwXpos, c.wXmin, c.wXmax, m, false, true);
+    g.sThumbLY = AxisToThumb(info.dwYpos, c.wYmin, c.wYmax, m, true, true);
     auto axis = [&](char name, bool invert) -> short {
         switch (name) {
-        case 'X': return AxisToThumb(info.dwXpos, c.wXmin, c.wXmax, m, invert);
-        case 'Y': return AxisToThumb(info.dwYpos, c.wYmin, c.wYmax, m, invert);
-        case 'Z': return (c.wCaps & JOYCAPS_HASZ) ? AxisToThumb(info.dwZpos, c.wZmin, c.wZmax, m, invert) : 0;
-        case 'R': return (c.wCaps & JOYCAPS_HASR) ? AxisToThumb(info.dwRpos, c.wRmin, c.wRmax, m, invert) : 0;
-        case 'U': return (c.wCaps & JOYCAPS_HASU) ? AxisToThumb(info.dwUpos, c.wUmin, c.wUmax, m, invert) : 0;
-        case 'V': return (c.wCaps & JOYCAPS_HASV) ? AxisToThumb(info.dwVpos, c.wVmin, c.wVmax, m, invert) : 0;
+        case 'X': return AxisToThumb(info.dwXpos, c.wXmin, c.wXmax, m, invert, false);
+        case 'Y': return AxisToThumb(info.dwYpos, c.wYmin, c.wYmax, m, invert, false);
+        case 'Z': return (c.wCaps & JOYCAPS_HASZ) ? AxisToThumb(info.dwZpos, c.wZmin, c.wZmax, m, invert, false) : 0;
+        case 'R': return (c.wCaps & JOYCAPS_HASR) ? AxisToThumb(info.dwRpos, c.wRmin, c.wRmax, m, invert, false) : 0;
+        case 'U': return (c.wCaps & JOYCAPS_HASU) ? AxisToThumb(info.dwUpos, c.wUmin, c.wUmax, m, invert, false) : 0;
+        case 'V': return (c.wCaps & JOYCAPS_HASV) ? AxisToThumb(info.dwVpos, c.wVmin, c.wVmax, m, invert, false) : 0;
         default: return 0;
         }
     };
     g.sThumbRX = axis(m.rightX, false);
     g.sThumbRY = axis(m.rightY, true);
+    ApplyFireOnRB(g, m);
 
     static WORD lastButtons = 0xFFFF;
     if (g.wButtons != lastButtons) {

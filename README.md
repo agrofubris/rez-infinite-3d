@@ -165,6 +165,10 @@ it for a monitor:
 - **Follow aim** (default off) turns the view toward where you move the
   reticle, up to the set angle, like the original camera following your aim.
   It reads the same stick the game does. Try 10–15°.
+- **Right stick look** (default 90°/s) turns the view with the right stick, to
+  find the reticle when it leaves the screen or to follow a boss to the side.
+  Click the right stick (R3) to recenter. With **fire on rb** on, the right
+  bumper fires, so your thumb can stay on the right stick. 0 turns it off.
 - `CameraBack` and `CameraUp` in `rez3d.ini` move the viewpoint in meters, for
   experiments.
 
@@ -212,7 +216,10 @@ DualShock 4, Switch Pro and generic USB pads, when no Xbox pad is connected.
 
 - **Stick speed** (default 60 %) and **stick curve** (default 1.5) make the
   reticle slower and finer than the game's own slowest cursor setting. They
-  apply to all pads; 100 % and 1.0 give the stick's raw response.
+  apply to all pads. The game ignores small tilts (its own dead zone, about
+  24 %), so the bridge starts its output at that edge (`PadGameDeadzone`):
+  the smallest tilt already moves the reticle, and speed and curve shape only
+  the range the game responds to. They apply in Area X too.
 - Wrong button? Override it in `rez3d.ini` with the 1-based button number:
   `PadA`, `PadB`, `PadX`, `PadY`, `PadLB`, `PadRB`, `PadLT`, `PadRT`,
   `PadBack`, `PadStart`, `PadLS`, `PadRS`, right-stick axes `PadRightX=Z`,
@@ -237,7 +244,7 @@ OpenVR folder. The launcher covers the common ones. Others:
 | `LeiaWindow` | Leia SR: `top` (the game's window, default) or `own` |
 | `MenuSeparation` | experimental: lower separation in detected menus (-1 = off; can misfire) |
 | `LensShift`, `CameraBack`, `CameraUp` | framing and viewpoint (see Camera) |
-| `FollowAim`, `FollowSpeed` | view follows the reticle (see Camera) |
+| `FollowAim`, `FollowSpeed`, `RightStickLook` | view follows the reticle; right stick turns the view (see Camera) |
 | `Tracking` | `mouse` = experimental mouse head-look |
 | `GpuComposite` | 0 = slower CPU fallback |
 | `LogFrameCalls`, `DumpFrames`, `DumpAfter`, `DumpEvery`, `DumpAfterSec`, `DumpEverySec` | debugging (frame dumps by frame count or by seconds) |

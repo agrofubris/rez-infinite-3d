@@ -169,6 +169,13 @@ it for a monitor:
   find the reticle when it leaves the screen or to follow a boss to the side.
   Click the right stick (R3) to recenter. With **fire on rb** on, the right
   bumper fires, so your thumb can stay on the right stick. 0 turns it off.
+- **L3 recenter** (default on): click the left stick to bring the reticle back
+  to the middle of the view. Rez keeps the reticle where you left it, even off
+  screen, so the add-on sweeps it into the bottom-left corner and back, which
+  takes about 2 s. Its timing follows Rez's own **gamepad speed** (pause >
+  controls), read from the game's options when it starts. Rez saves that option
+  when it quits, so after changing it, restart the game (or set `PadRezSpeed` in
+  `rez3d.ini`). Rez only, not Area X.
 - `CameraBack` and `CameraUp` in `rez3d.ini` move the viewpoint in meters, for
   experiments.
 

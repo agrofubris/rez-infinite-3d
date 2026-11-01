@@ -9,6 +9,7 @@
 #include <tlhelp32.h>
 #include <mmsystem.h>
 #include <xinput.h>
+#include <cctype>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -43,6 +44,9 @@ static void Log(const char* fmt, ...) {
     FILE* f = nullptr;
     fopen_s(&f, path, "a");
     if (f) {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        fprintf(f, "[%02u:%02u:%02u.%03u] ", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
         va_list ap;
         va_start(ap, fmt);
         vfprintf(f, fmt, ap);
@@ -151,11 +155,11 @@ static bool KeyboardAllowed() {
 }
 
 // Right-stick directions from the file trigger (RLEFT / RRIGHT / RUP / RDOWN)
-static short g_fileRX = 0, g_fileRY = 0;
+static short g_fileRX = 0, g_fileRY = 0, g_fileLX = 0, g_fileLY = 0;
 
 static unsigned short VirtualButtons() {
     unsigned short b = 0;
-    g_fileRX = g_fileRY = 0;
+    g_fileRX = g_fileRY = g_fileLX = g_fileLY = 0;
     const bool kb = KeyboardAllowed();
 
     // Keyboard mapping
@@ -206,10 +210,22 @@ static unsigned short VirtualButtons() {
                     else if (strcmp(token, "LB") == 0) b |= XINPUT_GAMEPAD_LEFT_SHOULDER;
                     else if (strcmp(token, "RB") == 0) b |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
                     else if (strcmp(token, "RS") == 0) b |= XINPUT_GAMEPAD_RIGHT_THUMB;
+                    else if (strcmp(token, "LS") == 0) b |= XINPUT_GAMEPAD_LEFT_THUMB;
                     else if (strcmp(token, "RLEFT") == 0) g_fileRX = -16000;
                     else if (strcmp(token, "RRIGHT") == 0) g_fileRX = 16000;
                     else if (strcmp(token, "RUP") == 0) g_fileRY = 16000;
                     else if (strcmp(token, "RDOWN") == 0) g_fileRY = -16000;
+                    // Exact stick values for tests: LX=-1 .. LX=1 (also LY, RX, RY)
+                    else if (strchr(token, '=')) {
+                        const char* eq = strchr(token, '=');
+                        float v = (float)atof(eq + 1);
+                        v = v < -1.0f ? -1.0f : (v > 1.0f ? 1.0f : v);
+                        const short sv = (short)(v * 32767.0f);
+                        if (strncmp(token, "LX=", 3) == 0) g_fileLX = sv;
+                        else if (strncmp(token, "LY=", 3) == 0) g_fileLY = sv;
+                        else if (strncmp(token, "RX=", 3) == 0) g_fileRX = sv;
+                        else if (strncmp(token, "RY=", 3) == 0) g_fileRY = sv;
+                    }
                     ti = 0;
                 } else if (!sep && ti < sizeof(token) - 1) {
                     token[ti++] = c;
@@ -240,6 +256,8 @@ static void VirtualSticks(short& lx, short& ly, short& rx, short& ry) {
     if (b & XINPUT_GAMEPAD_DPAD_RIGHT) lx = 16000;
     if (b & XINPUT_GAMEPAD_DPAD_UP) ly = 16000;
     if (b & XINPUT_GAMEPAD_DPAD_DOWN) ly = -16000;
+    if (g_fileLX) lx = g_fileLX;
+    if (g_fileLY) ly = g_fileLY;
     if (g_fileRX) rx = g_fileRX;
     if (g_fileRY) ry = g_fileRY;
 }
@@ -257,6 +275,8 @@ struct PadMap {
     float stickCurve = 1.5f;   // PadStickCurve: >1 = finer control near the centre
     float gameDeadzone = 0.24f;  // PadGameDeadzone: the game's own aim dead zone (XInput's standard 24 %)
     bool fireOnRB = false;     // PadFireOnRB: the right bumper fires (A), freeing the thumb for the right stick
+    bool recenter = true;      // PadRecenter: L3 brings the reticle back to the middle (Rez)
+    int rezSpeed = -1;         // PadRezSpeed: Rez's own gamepad speed for the recenter (auto = read it)
     bool enabled = true;
 };
 
@@ -304,6 +324,8 @@ static void ApplyIniOverrides(PadMap& m) {
         if (_stricmp(k, "StickCurve") == 0) m.stickCurve = (float)atof(val);
         if (_stricmp(k, "GameDeadzone") == 0) m.gameDeadzone = (float)atof(val) / 100.0f;
         if (_stricmp(k, "FireOnRB") == 0) m.fireOnRB = n != 0;
+        if (_stricmp(k, "Recenter") == 0) m.recenter = n != 0;
+        if (_stricmp(k, "RezSpeed") == 0) m.rezSpeed = isdigit((unsigned char)val[0]) ? n : -1;
         if (_stricmp(k, "Bridge") == 0) m.enabled = n != 0;
     }
     fclose(f);
@@ -455,7 +477,7 @@ static bool ReadBridge(XINPUT_GAMEPAD& g) {
     return true;
 }
 
-extern "C" DWORD WINAPI XInputGetState(DWORD index, XINPUT_STATE* state) noexcept {
+static DWORD GetPadState(DWORD index, XINPUT_STATE* state) {
     EnsureInit();
     if (!state) return ERROR_BAD_ARGUMENTS;
     EnsureReal();
@@ -484,6 +506,13 @@ extern "C" DWORD WINAPI XInputGetState(DWORD index, XINPUT_STATE* state) noexcep
     bool anyVirtual = vb != 0 || lx || ly || rx || ry;
 
     if (index != 0) return result;
+
+    // Every change of the virtual sticks, with its time (reticle tests)
+    static short lastV[4] = {};
+    if (lx != lastV[0] || ly != lastV[1] || rx != lastV[2] || ry != lastV[3]) {
+        lastV[0] = lx; lastV[1] = ly; lastV[2] = rx; lastV[3] = ry;
+        Log("virtual sticks: %d,%d,%d,%d", lx, ly, rx, ry);
+    }
 
     static DWORD s_packet = 0;
     if (result != ERROR_SUCCESS) {
@@ -527,6 +556,137 @@ extern "C" DWORD WINAPI XInputGetState(DWORD index, XINPUT_STATE* state) noexcep
         Log("virtual pad: buttons=0x%04X sticks=%d,%d,%d,%d", vb, lx, ly, rx, ry);
     }
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// L3 recenter (Rez)
+// ---------------------------------------------------------------------------
+// Rez moves its reticle from the left stick on a fixed 60 Hz tick, each axis on its
+// own, and stops it at fixed edges (about 50 deg across and 43 deg up/down from the
+// middle of the view). The speed comes from Rez's own "gamepad speed" option
+// (pause > controls), saved as a 32-bit value at 0x28 in CFG\rez-infinite.cfg.
+// So a recenter needs no tracking: push the stick into the bottom-left corner long
+// enough to get there from anywhere, then back at full tilt for the measured
+// edge-to-middle time of each axis. The edge resets the position, so nothing adds up.
+// Measured in Area 1 on 2026-11-01 (the same at 60 and ~1000 fps).
+namespace recenter {
+// Edge-to-middle time at full tilt (seconds) for each gamepad speed value, the mean
+// of both edges of each axis (+-1 game tick). Each step adds about 25 % of the
+// default speed (76 deg/s); 0 moves like 1, and Rez treats anything above 4 as 4.
+struct Timing { float x, y; };
+static const Timing kTiming[] = {
+    { 0.654f, 0.550f },  // 0
+    { 0.654f, 0.550f },  // 1: one bar, the game's default
+    { 0.527f, 0.438f },  // 2
+    { 0.434f, 0.371f },  // 3
+    { 0.375f, 0.319f },  // 4: the fastest
+};
+const int kMinSpeed = 0, kMaxSpeed = 4, kDefaultSpeed = 1;
+const float kMargin = 0.1f;  // extra push, so the corner is reached for sure
+
+static SRWLOCK g_lock = SRWLOCK_INIT;
+static int g_enabled = -1;  // -1 = not decided yet
+static WORD g_buttons = 0;
+static bool g_active = false;
+static LARGE_INTEGER g_start{};
+static Timing g_t{};
+
+static bool Enabled() {
+    if (g_enabled < 0) {
+        PadMap m;
+        ApplyIniOverrides(m);
+        // Area X moves the avatar instead, with its own settings
+        char dir[MAX_PATH];
+        strcpy_s(dir, g_dir);
+        _strupr_s(dir);
+        g_enabled = m.recenter && !strstr(dir, "\\REZAX\\") ? 1 : 0;
+        Log("recenter: L3 %s", g_enabled ? "on" : "off");
+    }
+    return g_enabled == 1;
+}
+
+// Rez's gamepad speed: PadRezSpeed in rez3d.ini if set, else Rez's own options file
+// (written when the game quits), else the game's default
+static int GameSpeed() {
+    PadMap m;
+    ApplyIniOverrides(m);
+    int v = -1;
+    char src[MAX_PATH + 64];
+    if (m.rezSpeed >= kMinSpeed && m.rezSpeed <= kMaxSpeed) {
+        v = m.rezSpeed;
+        strcpy_s(src, "PadRezSpeed in rez3d.ini");
+    } else {
+        char path[MAX_PATH];
+        sprintf_s(path, "%s\\..\\CFG\\rez-infinite.cfg", g_dir);
+        FILE* f = nullptr;
+        unsigned char cfg[424];
+        if (fopen_s(&f, path, "rb") == 0 && f) {
+            const size_t n = fread(cfg, 1, sizeof(cfg), f);
+            const bool exact = n == sizeof(cfg) && fgetc(f) == EOF;
+            fclose(f);
+            const int raw = cfg[0x28] | cfg[0x29] << 8 | cfg[0x2A] << 16 | cfg[0x2B] << 24;
+            if (exact && raw >= kMinSpeed && raw <= kMaxSpeed) {
+                v = raw;
+                strcpy_s(src, "CFG\\rez-infinite.cfg");
+            } else {
+                sprintf_s(src, "the default: CFG\\rez-infinite.cfg holds %d (%s)", raw,
+                          exact ? "out of range" : "unexpected size");
+            }
+        } else {
+            strcpy_s(src, "the default: CFG\\rez-infinite.cfg not found");
+        }
+    }
+    if (v < 0) v = kDefaultSpeed;
+    static int logged = -2;
+    if (v != logged) {
+        logged = v;
+        Log("recenter: gamepad speed %d from %s", v, src);
+    }
+    return v;
+}
+
+static float Since(const LARGE_INTEGER& t) {
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    return (float)((double)(now.QuadPart - t.QuadPart) / (double)freq.QuadPart);
+}
+
+static void Apply(XINPUT_GAMEPAD& g) {
+    if (!Enabled()) return;
+    AcquireSRWLockExclusive(&g_lock);
+    const WORD pressed = (WORD)(g.wButtons & ~g_buttons);
+    g_buttons = g.wButtons;
+    if (!g_active && (pressed & XINPUT_GAMEPAD_LEFT_THUMB)) {
+        g_t = kTiming[GameSpeed()];
+        g_active = true;
+        QueryPerformanceCounter(&g_start);
+        Log("recenter: start (corner %.2f s, back %.3f / %.3f s)", 2.0f * g_t.x + kMargin, g_t.x, g_t.y);
+    }
+    if (g_active) {
+        const float push = 2.0f * (g_t.x > g_t.y ? g_t.x : g_t.y) + kMargin;
+        const float t = Since(g_start);
+        if (t < push) {
+            g.sThumbLX = -32767;
+            g.sThumbLY = -32767;
+        } else {
+            g.sThumbLX = t < push + g_t.x ? 32767 : 0;
+            g.sThumbLY = t < push + g_t.y ? 32767 : 0;
+            if (t >= push + g_t.x && t >= push + g_t.y) {
+                g_active = false;
+                Log("recenter: done");
+            }
+        }
+    }
+    g.wButtons &= (WORD)~XINPUT_GAMEPAD_LEFT_THUMB;
+    ReleaseSRWLockExclusive(&g_lock);
+}
+}  // namespace recenter
+
+extern "C" DWORD WINAPI XInputGetState(DWORD index, XINPUT_STATE* state) noexcept {
+    const DWORD r = GetPadState(index, state);
+    if (index == 0 && r == ERROR_SUCCESS && state) recenter::Apply(state->Gamepad);
+    return r;
 }
 
 extern "C" DWORD WINAPI XInputSetState(DWORD index, XINPUT_VIBRATION* vibration) noexcept {

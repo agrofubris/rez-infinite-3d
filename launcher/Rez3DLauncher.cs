@@ -314,6 +314,8 @@ namespace Rez3D
                 "above 1 = finer aim near the centre, full speed still at the edge");
             Choice("fire on rb", "PadFireOnRB", new[] { "0", "1" }, new[] { "off", "on" }, "0",
                    "the right bumper fires, so your thumb can stay on the right stick");
+            Choice("l3 recenter", "PadRecenter", new[] { "1", "0" }, new[] { "on", "off" }, "1",
+                   "l3 sweeps the reticle into a corner and back to the middle (about 2 s)");
             items.Add(new Item { Label = "defaults", Kind = Kind.Action, Run = Defaults,
                                  Help = "restore every value above to its default" });
             items.Add(new Item { Label = "uninstall 3d", Kind = Kind.Action, Run = Uninstall,

@@ -38,6 +38,53 @@ struct StereoConfig {
     float cameraUp = 0.0f;          // meters above it
     float dumpAfterSec = 0.0f;      // testing: time-based frame dumps (0 = use DumpAfter frames)
     float dumpEverySec = 1.0f;
+    // Testing: which of the game's projection queries draws what. ProbeSeq logs the
+    // order of the queries in some frames. ProbeKind (raw / matrix) and ProbeIndex
+    // shift one query's frustum sideways by ProbeShift (tangent units); with
+    // ProbeCycleSec, the next index every that many seconds from ProbeStartSec,
+    // up to ProbeCount.
+    int probeSeq = 0;
+    std::string probeKind = "off";
+    int probeIndex = -1;
+    float probeShift = 0.3f;
+    float probeCycleSec = 0.0f;
+    float probeStartSec = 0.0f;
+    int probeCount = 24;
+    // Testing: hooks on the game's D3D11 draws. HookMode 1 logs a frame's draws per
+    // shader pair every HookLogEvery frames; 2 also skips one pixel shader at a time,
+    // HookHuntSec each, from HookHuntStartSec (to find the reticle's draw).
+    int hookMode = 0;
+    int hookLogEvery = 300;
+    float hookHuntSec = 2.5f;
+    float hookHuntStartSec = 40.0f;
+    unsigned hookSkipPS = 0;        // HookSkipPS: hex hash of a pixel shader whose draws are always skipped
+    unsigned hookDetailPS = 0;      // HookDetailPS: log every draw of this pixel shader in logged frames
+    unsigned hookHuntDrawsOf = 0;   // HookHuntDrawsOf: hunt over this pixel shader's draws, one at a time
+    // Rez's reticle: quads (4 vertices) drawn by this pixel shader with a texture of this size
+    // and one of these DXGI formats: the octagon (BC3, 77) and, as tested, the centre cross
+    // (B8G8R8A8, 87). The enemies' glows share the shader and a BC3 texture, but draw 10
+    // vertices. HookSkipReticle=1 hides it (test).
+    unsigned reticlePS = 0x56E63E45;
+    int reticleTexW = 256, reticleTexH = 256, reticleVerts = 4;
+    std::string reticleTexFormats = "77,87";
+    int hookSkipReticle = 0;
+    // Reticle depth: Rez draws its reticle about ReticleGameDistance meters away (measured:
+    // 198.5 px of the 208 px parallax at infinity, convergence 20). ReticleDepth > 0 redraws it
+    // at that many meters by shifting its draw sideways per eye. 0 = where the game puts it.
+    float reticleDepth = 0.0f;
+    float reticleGameDistance = 440.0f;
+    float reticleShiftPx = 0.0f;    // testing: a fixed shift in eye-image pixels instead (positive = nearer)
+    // ReticleAuto=1 puts the reticle at the depth of what is under it: the nearest scene depth
+    // under its centre (its vertex shader is ReticleVS). Rez's depth is reversed: distance =
+    // ReticleDepthScale / depth (0.36 from the avatar: depth 0.0186-0.0196 at about 19 m).
+    // With nothing under it (sky), it goes to ReticleDepth, or where the game puts it if 0.
+    // Never nearer than ReticleMinDepth meters.
+    int reticleAuto = 0;
+    float reticleDepthScale = 0.36f;
+    float reticleMinDepth = 3.0f;
+    std::string reticleDepthProbe;  // testing: "x,y,r" measures a box of the screen (pixels) instead
+    unsigned reticleVS = 0x04688A8A;
+    unsigned hookHuntTexOf = 0;     // HookHuntTexOf: hunt over the textures this pixel shader samples, one at a time
     // Follow aim: the virtual head turns toward where the left stick has moved the
     // reticle, like the camera of the non-VR versions. 0 = off.
     float followAim = 0.0f;         // largest turn in degrees

@@ -18,6 +18,7 @@
 #include "config.h"
 #include "log.h"
 #include "presenter.h"
+#include "d3d_hook.h"
 
 // Per-frame call statistics (LogFrameCalls=2 logs whenever the pattern changes)
 static const int kMaxSites = 32;
@@ -696,11 +697,65 @@ static void EyeTangents(EVREye eye, float& l, float& r, float& t, float& b) {
     b = g_tanV + shiftV;
 }
 
+// Testing (ProbeSeq / ProbeKind in rez3d.ini): which projection query draws what.
+// Queries are counted from each WaitGetPoses.
+static SRWLOCK g_probeLock = SRWLOCK_INIT;
+static std::string g_probeSeqBuf;
+static int g_probeRawN = 0, g_probeMatN = 0;
+static LARGE_INTEGER g_probeT0{};
+
+static bool ProbeOn() { return g_cfg.probeSeq || g_cfg.probeKind != "off"; }
+
+// The query index to shift now (-1 = none)
+static int ProbeActive() {
+    if (g_cfg.probeCycleSec <= 0.0f) return g_cfg.probeIndex;
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    if (!g_probeT0.QuadPart) g_probeT0 = now;
+    const double t = (double)(now.QuadPart - g_probeT0.QuadPart) / (double)g_qpcFreq.QuadPart - g_cfg.probeStartSec;
+    if (t < 0.0) return -1;
+    const int i = (int)(t / g_cfg.probeCycleSec);
+    return i < g_cfg.probeCount ? i : -1;
+}
+
+// Records one query; true if this is the one to shift
+static bool ProbeQuery(char kind, int eye) {
+    if (!ProbeOn()) return false;
+    AcquireSRWLockExclusive(&g_probeLock);
+    const int idx = kind == 'R' ? g_probeRawN++ : g_probeMatN++;
+    if (g_cfg.probeSeq && g_probeSeqBuf.size() < 4000) {
+        char b[40];
+        sprintf_s(b, "%c%d.e%d.t%lu ", kind, idx, eye, GetCurrentThreadId());
+        g_probeSeqBuf += b;
+    }
+    ReleaseSRWLockExclusive(&g_probeLock);
+    const bool kindMatches = (kind == 'R' && g_cfg.probeKind == "raw") || (kind == 'M' && g_cfg.probeKind == "matrix");
+    return kindMatches && idx == ProbeActive();
+}
+
+static void ProbeFrame() {
+    if (!ProbeOn()) return;
+    AcquireSRWLockExclusive(&g_probeLock);
+    if (g_cfg.probeSeq && (g_waitCount % 300) == 0)
+        LogPrintf("ProbeSeq #%u (t%lu): %s", g_waitCount, GetCurrentThreadId(), g_probeSeqBuf.c_str());
+    g_probeSeqBuf.clear();
+    g_probeRawN = g_probeMatN = 0;
+    ReleaseSRWLockExclusive(&g_probeLock);
+    static int last = -2;
+    const int a = ProbeActive();
+    if (a != last) {
+        last = a;
+        LogPrintf("Probe: shifting %s query #%d", g_cfg.probeKind.c_str(), a);
+    }
+}
+
 // Same layout as OpenVR's own ComposeProjection (row-major, column vectors).
-static HmdMatrix44_t ProjectionMatrixImpl(EVREye eye, float nearZ, float farZ, bool d3dDepth) {
+static HmdMatrix44_t ProjectionMatrixImpl(EVREye eye, float nearZ, float farZ, bool d3dDepth, float probe = 0.0f) {
     HmdMatrix44_t m{};
     float l, r, t, b;
     EyeTangents(eye, l, r, t, b);
+    l += probe;
+    r += probe;
     float idx = 1.0f / (r - l);
     float idy = 1.0f / (b - t);
     m.m[0][0] = 2.0f * idx;
@@ -723,7 +778,7 @@ static HmdMatrix44_t __stdcall Sys_GetProjectionMatrix015(EVREye eye, float near
     TRACE_FN("sys.GetProjectionMatrix015 eye=%d near=%.3f far=%.1f", (int)eye, nearZ, farZ);
     g_lastNear = nearZ;
     g_lastFar = farZ;
-    return ProjectionMatrixImpl(eye, nearZ, farZ, true);
+    return ProjectionMatrixImpl(eye, nearZ, farZ, true, ProbeQuery('M', (int)eye) ? g_cfg.probeShift : 0.0f);
 }
 
 static HmdMatrix44_t __stdcall Sys_GetProjectionMatrix012(EVREye eye, float nearZ, float farZ,
@@ -735,6 +790,10 @@ static void __stdcall Sys_GetProjectionRaw(EVREye eye, float* l, float* r, float
     TRACE_FN("sys.GetProjectionRaw eye=%d", (int)eye);
     float el, er, et, eb;
     EyeTangents(eye, el, er, et, eb);
+    if (ProbeQuery('R', (int)eye)) {
+        el += g_cfg.probeShift;
+        er += g_cfg.probeShift;
+    }
     if (l) *l = el;
     if (r) *r = er;
     if (t) *t = et;
@@ -1084,6 +1143,10 @@ static EVRCompositorError __stdcall Comp_Submit(EVREye eye, Texture_t* texture, 
     EyeBounds b;
     CopyBounds(bounds, b);
     Presenter::Get().SubmitEye(eye == Eye_Right ? 1 : 0, tex, b, (int)flags);
+    if (eye == Eye_Right) {
+        D3DHookSetStereo(SeparationNdc(), g_cfg.convergence);
+        D3DHookFrame();  // both eyes are in: the game's frame ends here
+    }
     return VRCompositorError_None;
 }
 
@@ -1091,6 +1154,7 @@ static EVRCompositorError __stdcall Comp_WaitGetPoses(TrackedDevicePose_t* rende
                                                       uint32_t renderCount, TrackedDevicePose_t* gamePoses,
                                                       uint32_t gameCount) {
     g_waitCount++;
+    ProbeFrame();
     // Like a real compositor, hold the game until its previous frame is on
     // screen; otherwise it renders hundreds of frames per second for nothing.
     if (g_cfg.framePacing && !g_noPresenter) {
@@ -1760,6 +1824,7 @@ extern "C" __declspec(dllexport) intptr_t VR_InitInternal(EVRInitError* peError,
     std::call_once(g_initTablesOnce, InitTables);
     if (peError) *peError = VRInitError_None;
     LogPrintf("VR_InitInternal: type=%d", (int)eType);
+    InstallD3DHooksEarly(g_cfg);
     (void)pStartupInfo;
     g_token++;
     StartWatchdog();

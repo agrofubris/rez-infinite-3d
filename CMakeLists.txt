@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(rez3d LANGUAGES CXX)
+project(rez3d LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,9 +12,15 @@ add_library(openvr_api SHARED
     src/log.cpp
     src/audio.cpp
     src/leia_host.cpp
+    src/d3d_hook.cpp
+    src/reticle_depth.cpp
+    vendor/minhook/src/buffer.c
+    vendor/minhook/src/hook.c
+    vendor/minhook/src/trampoline.c
+    vendor/minhook/src/hde/hde64.c
 )
 
-target_include_directories(openvr_api PRIVATE src vendor)
+target_include_directories(openvr_api PRIVATE src vendor vendor/minhook/include)
 target_compile_definitions(openvr_api PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
 target_link_libraries(openvr_api PRIVATE d3d11 dxgi d3dcompiler ole32 shell32)
 

@@ -1,5 +1,6 @@
 #include "presenter.h"
 #include "config.h"
+#include "d3d_hook.h"
 #include "log.h"
 
 #include <d3d11.h>
@@ -719,6 +720,7 @@ bool Presenter::CreateDeviceAndSwapChain() {
     HRESULT hr = D3D11CreateDevice(adapter, adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
                                    nullptr, flags, levels, _countof(levels), D3D11_SDK_VERSION,
                                    &m_device, &got, &m_context);
+    D3DHookSetOwnDevice(m_device);
     if (FAILED(hr)) {
         LogPrintf("Presenter: D3D11CreateDevice failed hr=0x%08lX", (unsigned long)hr);
         if (adapter) adapter->Release();
@@ -910,6 +912,8 @@ void Presenter::SubmitEye(int eye, ID3D11Texture2D* texture, const EyeBounds& bo
         dev->Release();
         return;
     }
+    InstallD3DHooks(dev, ctx, m_cfg);
+    D3DHookNoteEye(eye, texture);
 
     D3D11_TEXTURE2D_DESC desc{};
     texture->GetDesc(&desc);

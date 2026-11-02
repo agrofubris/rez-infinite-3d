@@ -37,6 +37,10 @@ namespace Rez3D
 
         public double Num;
         public int ChoiceIndex;
+
+        public string Section;  // heading this item sits under (null = none)
+        public int Col;         // 0 = left column, 1 = right
+        public float Y;         // set by Layout()
     }
 
     class Ini
@@ -99,7 +103,11 @@ namespace Rez3D
         int selected;
         string status = "";
         readonly Font titleFont, itemFont, smallFont;
-        readonly int rowH = 27, listTop = 150, valueX = 470;
+        // Layout: the launcher has two columns of sections; setup has one plain list
+        readonly int rowH = 26, listTop = 140, headerH = 30, actionGap = 14;
+        readonly int[] labelX = { 64, 724 }, valueX = { 350, 990 };
+        int colSplit = 680;  // x where the right column starts (clicks)
+        readonly List<KeyValuePair<string, PointF>> headers = new List<KeyValuePair<string, PointF>>();
         Point dragStart;
 
         // Gamepad: read through the game's own xinput1_3.dll proxy, so what the
@@ -158,10 +166,11 @@ namespace Rez3D
             iniPaths.Add(Path.Combine(root, @"REZ\rez3d.ini"));
             var ax = Path.Combine(root, @"AX\Engine\Binaries\ThirdParty\OpenVR\OpenVRv1_0_2\Win64\rez3d.ini");
             if (File.Exists(ax)) iniPaths.Add(ax);
-            ClientSize = new Size(860, 1030);
+            ClientSize = new Size(1280, 840);
             items.Clear();
             selected = 0;
             BuildItems();
+            LayoutItems();
             Load_();
             if (updateOnPlay)
             {
@@ -189,7 +198,34 @@ namespace Rez3D
             items.Add(new Item { Label = "browse for the game", Kind = Kind.Action, Run = Browse,
                                  Help = "pick the folder that contains rez-infinite.exe" });
             items.Add(new Item { Label = "quit", Kind = Kind.Action, Run = Close, Help = "close without installing" });
+            LayoutItems();
             status = roots.Count > 0 ? "" : "rez infinite was not found: browse for its folder";
+        }
+
+        // Rows go down their column; a new section starts with its heading, and a run of
+        // actions after settings starts a little lower. The right column starts level with
+        // the left column's first heading.
+        void LayoutItems()
+        {
+            headers.Clear();
+            var y = new float[] { listTop, listTop + rowH };
+            var last = new string[2];
+            for (int i = 0; i < items.Count; i++)
+            {
+                var it = items[i];
+                int c = it.Col;
+                if (it.Section != null && it.Section != last[c])
+                {
+                    if (last[c] != null || y[c] > listTop) y[c] += 10;
+                    headers.Add(new KeyValuePair<string, PointF>(it.Section, new PointF(labelX[c], y[c] + 6)));
+                    y[c] += headerH;
+                    last[c] = it.Section;
+                }
+                bool firstAction = it.Kind == Kind.Action && i > 0 && items[i - 1].Kind != Kind.Action;
+                if (firstAction) y[c] += actionGap + (it.Section == null && last[c] != null ? 10 : 0);
+                it.Y = y[c];
+                y[c] += rowH;
+            }
         }
 
         void DoInstall(string root)
@@ -249,10 +285,20 @@ namespace Rez3D
             return false;
         }
 
+        // Settings go under the current section, in the current column
+        string section;
+        int column;
+
+        void Section(string name, int col)
+        {
+            section = name;
+            column = col;
+        }
+
         Item Num(string label, string key, double min, double max, double step, double def, int dec, string unit, string help)
         {
             var it = new Item { Label = label, Key = key, Kind = Kind.Number, Min = min, Max = max, Step = step,
-                                Default = def, Decimals = dec, Unit = unit, Help = help };
+                                Default = def, Decimals = dec, Unit = unit, Help = help, Section = section, Col = column };
             items.Add(it);
             return it;
         }
@@ -260,7 +306,7 @@ namespace Rez3D
         Item Choice(string label, string key, string[] values, string[] labels, string def, string help)
         {
             var it = new Item { Label = label, Key = key, Kind = Kind.Choice, Choices = values, ChoiceLabels = labels,
-                                DefaultChoice = def, Help = help };
+                                DefaultChoice = def, Help = help, Section = section, Col = column };
             items.Add(it);
             return it;
         }
@@ -269,22 +315,33 @@ namespace Rez3D
         {
             items.Add(new Item { Label = "play", Kind = Kind.Action, Run = Play,
                                  Help = "start rez infinite in stereoscopic 3d" });
-            Choice("format", "Format",
-                   new[] { "Interlaced_Reversed", "Interlaced", "SBS", "SBS_Cross", "TAB", "TAB_Cross", "Checkerboard", "LeiaSR", "Mono_Left", "Mono_Right" },
-                   new[] { "interlaced reversed", "interlaced", "side by side", "side by side cross", "top and bottom", "top and bottom cross", "checkerboard", "leia sr", "mono left", "mono right" },
-                   "Interlaced_Reversed", "how both eyes are packed for your display. passive monitors: interlaced. leia sr: needs the sr platform");
+
+            Section("depth", 0);
             Num("separation", "Separation", 0, 200, 5, 100, 0, " %",
                 "depth of distant objects. 100% = a real eye distance on your screen");
             Num("convergence", "Convergence", 1, 300, 1, 20, 1, " m",
                 "rez: distance placed on the screen. ~20 keeps the avatar on the screen, higher pops out");
             Num("area x convergence", "AreaXConvergence", 0.5, 50, 0.1, 3, 1, " m",
                 "area x is built closer: ~3 puts the crosshair on the screen, everything else behind it");
+            Choice("reticle depth", "ReticleAuto", new[] { "0", "1" }, new[] { "game", "auto" }, "0",
+                   "auto puts the reticle at the depth of what is under it, so near targets and the reticle fuse");
             Num("menu separation", "MenuSeparation", -5, 200, 5, -5, 0, " %",
                 "experimental: lower depth in detected menus. can misfire in sparse gameplay");
-            Num("field of view", "FovH", 60, 110, 5, 85, 0, "°",
-                "horizontal view angle. 85 with lens shift 7 frames the avatar like the original game");
-            Num("render scale (reticle)", "RenderScale", 0.5, 2.0, 0.25, 1.5, 2, "x",
-                "per eye resolution. lower = bigger reticle but softer scene. 1.5 = small, sharp; 0.75 = big, softer");
+
+            Section("display", 0);
+            Choice("format", "Format",
+                   new[] { "Interlaced_Reversed", "Interlaced", "SBS", "SBS_Cross", "TAB", "TAB_Cross", "Checkerboard", "LeiaSR", "Mono_Left", "Mono_Right" },
+                   new[] { "interlaced reversed", "interlaced", "side by side", "side by side cross", "top and bottom", "top and bottom cross", "checkerboard", "leia sr", "mono left", "mono right" },
+                   "Interlaced_Reversed", "how both eyes are packed for your display. passive monitors: interlaced. leia sr: needs the sr platform");
+            int screens = Math.Max(1, Monitors.List.Count);
+            Num("monitor", "Monitor", 0, screens - 1, 1, 0, 0, "", "display to play on (0 = your primary display)");
+            Num("render scale", "RenderScale", 0.5, 2.0, 0.25, 1.5, 2, "x",
+                "per eye resolution. it also sets the reticle's size: 1.5 = small, sharp; 0.75 = big, softer scene");
+            Choice("vsync", "VSync", new[] { "1", "0" }, new[] { "on", "off" }, "1", "sync to the display refresh");
+            Choice("frame pacing", "FramePacing", new[] { "1", "0" }, new[] { "on", "off" }, "1",
+                   "hold the game to the display rate like a vr compositor");
+
+            Section("picture", 0);
             Num("interlace filter", "InterlaceFilter", 0, 1, 0.25, 0.5, 2, "",
                 "blends each eye over the rows it owns. lower = sharper, more line flicker");
             Num("crosstalk", "Crosstalk", 0, 0.3, 0.005, 0, 3, "",
@@ -295,11 +352,10 @@ namespace Rez3D
                 "light gain to compensate for the glasses");
             Num("gamma", "Gamma", 0.5, 2.0, 0.05, 1, 2, "",
                 "midtone brightness. above 1 = brighter midtones");
-            int screens = Math.Max(1, Monitors.List.Count);
-            Num("monitor", "Monitor", 0, screens - 1, 1, 0, 0, "", "display to play on (0 = your primary display)");
-            Choice("vsync", "VSync", new[] { "1", "0" }, new[] { "on", "off" }, "1", "sync to the display refresh");
-            Choice("frame pacing", "FramePacing", new[] { "1", "0" }, new[] { "on", "off" }, "1",
-                   "hold the game to the display rate like a vr compositor");
+
+            Section("camera", 1);
+            Num("field of view", "FovH", 60, 110, 5, 85, 0, "°",
+                "horizontal view angle. 85 with lens shift 7 frames the avatar like the original game");
             Num("lens shift", "LensShift", -20, 20, 1, 7, 0, " %",
                 "moves the picture down. 7 frames the avatar like the original game, 0 is vr mode's view");
             Num("follow aim", "FollowAim", 0, 30, 5, 0, 0, "°",
@@ -308,6 +364,8 @@ namespace Rez3D
                 "the right stick turns the view to find the reticle or a boss. r3 recenters. 0 = off");
             Choice("head look", "Tracking", new[] { "off", "mouse" }, new[] { "off", "mouse" }, "off",
                    "experimental: move the camera with the mouse");
+
+            Section("controller", 1);
             Num("stick speed", "PadStickSpeed", 10, 100, 5, 60, 0, " %",
                 "top aim speed, as a share of the game's range. the smallest tilt always moves");
             Num("stick curve", "PadStickCurve", 1, 3, 0.25, 1.5, 2, "",
@@ -316,11 +374,12 @@ namespace Rez3D
                    "the right bumper fires, so your thumb can stay on the right stick");
             Choice("l3 recenter", "PadRecenter", new[] { "1", "0" }, new[] { "on", "off" }, "1",
                    "l3 sweeps the reticle into a corner and back to the middle (about 2 s)");
-            items.Add(new Item { Label = "defaults", Kind = Kind.Action, Run = Defaults,
-                                 Help = "restore every value above to its default" });
-            items.Add(new Item { Label = "uninstall 3d", Kind = Kind.Action, Run = Uninstall,
+
+            items.Add(new Item { Label = "defaults", Kind = Kind.Action, Run = Defaults, Col = 1,
+                                 Help = "restore every setting to its default" });
+            items.Add(new Item { Label = "uninstall 3d", Kind = Kind.Action, Run = Uninstall, Col = 1,
                                  Help = "remove rez infinite 3d from this copy and restore the original game files" });
-            items.Add(new Item { Label = "quit", Kind = Kind.Action, Run = Close, Help = "close without playing" });
+            items.Add(new Item { Label = "quit", Kind = Kind.Action, Run = Close, Col = 1, Help = "close without playing" });
         }
 
         void Load_()
@@ -489,24 +548,32 @@ namespace Rez3D
                     g.DrawLine(pen, ClientSize.Width - 48 - i * 22, 112, ClientSize.Width - 48 - i * 22, 124);
             }
 
+            // Section headings: small spaced type with a short rule, like Rez's menus
+            foreach (var h in headers)
+            {
+                DrawSpaced(g, h.Key, smallFont, DimOrange, h.Value.X, h.Value.Y, 6);
+                using (var pen = new Pen(DimOrange, 1))
+                    g.DrawLine(pen, h.Value.X, h.Value.Y + 20, Math.Min(h.Value.X + 520, ClientSize.Width - 48), h.Value.Y + 20);
+            }
+
             for (int i = 0; i < items.Count; i++)
             {
                 var it = items[i];
-                float y = listTop + i * rowH + (it.Kind == Kind.Action && i > 0 ? 14 : 0);
+                float y = it.Y, x = labelX[it.Col];
                 bool sel = i == selected;
                 var c = sel ? Color.White : Orange;
-                DrawSpaced(g, it.Label, itemFont, c, 64, y, 3);
+                DrawSpaced(g, it.Label, itemFont, c, x, y, 3);
                 if (it.Kind != Kind.Action)
                 {
                     var val = Display(it);
-                    DrawSpaced(g, sel ? "<  " + val + "  >" : "   " + val, itemFont, c, valueX, y, 2);
+                    DrawSpaced(g, sel ? "<  " + val + "  >" : "   " + val, itemFont, c, valueX[it.Col], y, 2);
                 }
                 else if (it.Value != null)
                 {
                     DrawSpaced(g, Display(it), smallFont, sel ? Color.White : Grey, 300, y + 4, 1);
                 }
                 if (sel)
-                    using (var b = new SolidBrush(Orange)) g.FillRectangle(b, 46, y + 8, 6, 6);
+                    using (var b = new SolidBrush(Orange)) g.FillRectangle(b, x - 18, y + 8, 6, 6);
             }
 
             float by = ClientSize.Height - (gameRoot == null ? 96 : 118);
@@ -616,12 +683,13 @@ namespace Rez3D
             base.OnFormClosed(e);
         }
 
-        int RowAt(int y)
+        int RowAt(int x, int y)
         {
+            int col = gameRoot != null && x >= colSplit ? 1 : 0;
             for (int i = 0; i < items.Count; i++)
             {
-                float top = listTop + i * rowH + (items[i].Kind == Kind.Action && i > 0 ? 14 : 0);
-                if (y >= top - 4 && y < top + rowH - 4) return i;
+                float top = items[i].Y;
+                if (items[i].Col == col && y >= top - 4 && y < top + rowH - 4) return i;
             }
             return -1;
         }
@@ -646,7 +714,7 @@ namespace Rez3D
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            int row = RowAt(e.Y);
+            int row = RowAt(e.X, e.Y);
             if (row < 0)
             {
                 dragStart = e.Location;  // drag the borderless window by its empty areas
@@ -656,13 +724,14 @@ namespace Rez3D
             status = "";
             var it = items[row];
             if (it.Kind == Kind.Action) it.Run();
-            else if (e.X >= valueX) Change(it, e.Button == MouseButtons.Right || e.X < valueX + 30 ? -1 : +1);
+            else if (e.X >= valueX[it.Col])
+                Change(it, e.Button == MouseButtons.Right || e.X < valueX[it.Col] + 30 ? -1 : +1);
             Invalidate();
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Left && RowAt(dragStart.Y) < 0 && dragStart != Point.Empty)
+            if (e.Button == MouseButtons.Left && RowAt(dragStart.X, dragStart.Y) < 0 && dragStart != Point.Empty)
                 Location = new Point(Location.X + e.X - dragStart.X, Location.Y + e.Y - dragStart.Y);
         }
 
@@ -670,7 +739,7 @@ namespace Rez3D
 
         protected override void OnMouseWheel(MouseEventArgs e)
         {
-            int row = RowAt(e.Y);
+            int row = RowAt(e.X, e.Y);
             if (row >= 0) { selected = row; Change(items[row], e.Delta > 0 ? +1 : -1); }
         }
     }

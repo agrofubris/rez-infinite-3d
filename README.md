@@ -114,6 +114,16 @@ Parallax follows 3D Vision: `parallax = Separation × (1 − Convergence / dista
   default 3 puts the crosshair on the screen and everything else behind it.
   Area X reads only this one and Rez only Convergence; Ctrl+F7 saves the one
   in use.
+- **Reticle depth** (`game` or `auto`): Rez draws its reticle about 440 m
+  away, so a near target such as a boss and the reticle can't both be fused at
+  once. `auto` places the reticle at the depth of what is under its centre,
+  read from the game's depth buffer, and eases between depths; over empty sky
+  it goes back to where the game puts it. In `rez3d.ini`, `ReticleDepth`
+  (meters) sets the depth over empty sky instead, or a fixed depth with
+  `ReticleAuto=0`. `ReticleDepthScale` calibrates the distance (raise it if
+  the reticle sits in front of targets, lower it if behind) and
+  `ReticleMinDepth` keeps it from coming nearer than that. Rez only, not
+  Area X.
 
 Why VR Rez feels flat: at a 6.5 cm eye distance nearly everything 19 m and
 farther away is effectively at infinity. Here the virtual eye distance scales
@@ -253,6 +263,7 @@ OpenVR folder. The launcher covers the common ones. Others:
 | `LensShift`, `CameraBack`, `CameraUp` | framing and viewpoint (see Camera) |
 | `FollowAim`, `FollowSpeed`, `RightStickLook` | view follows the reticle; right stick turns the view (see Camera) |
 | `Tracking` | `mouse` = experimental mouse head-look |
+| `ReticleAuto`, `ReticleDepth`, `ReticleDepthScale`, `ReticleMinDepth` | reticle depth (see Depth) |
 | `GpuComposite` | 0 = slower CPU fallback |
 | `LogFrameCalls`, `DumpFrames`, `DumpAfter`, `DumpEvery`, `DumpAfterSec`, `DumpEverySec` | debugging (frame dumps by frame count or by seconds) |
 
@@ -261,7 +272,8 @@ OpenVR folder. The launcher covers the common ones. Others:
 - The warning screen, logos and menus are flat panels the game draws for VR.
   They sit far behind the screen at full separation.
 - The HUD (reticle, lock-on markers) lives in the 3D scene, so it moves in
-  depth with everything else.
+  depth with everything else. Only the reticle can be moved in depth
+  (Reticle depth); the lock-on markers stay where the game puts them.
 - Area X is less tested. In one test it ran out of enemies after a few
   minutes. Area X may expect you to turn your head as in VR, and the view here
   always looks ahead; `Tracking=mouse` in Area X's `rez3d.ini` lets you look
@@ -291,7 +303,8 @@ every SR DLL, so it loads on machines without the SR Platform.
 Layout: `src/` holds the VR runtime and 3D compositor (D3D11, shared textures,
 HLSL composite), `xinput-proxy/` the controller bridge, `launcher/` the
 settings screen (C#), `leia/` the optional Leia SR loader, and `vendor/` the
-OpenVR 1.0.2 C API header.
+OpenVR 1.0.2 C API header and MinHook 1.3.3, which hooks the game's Direct3D 11
+draw calls for reticle depth.
 
 Testing without taking over your screen: `build\tools\RunHidden.exe 30
 "<game>\Rez-infinite.exe" vr=1` runs the game on a hidden Windows desktop,
@@ -331,7 +344,9 @@ Stereo 3D:
 - The NVIDIA 3D Vision and geo-11 community, whose separation and
   convergence conventions this add-on follows
 
+Code: **Tsuda Kageyu**'s MinHook, which the reticle depth hooks are built on.
+
 ## Licence
 
-MIT. See `LICENSE`. The OpenVR header is © Valve (BSD-3-Clause); see
-`THIRD_PARTY_NOTICES.md`.
+MIT. See `LICENSE`. The OpenVR header is © Valve (BSD-3-Clause) and MinHook
+is © Tsuda Kageyu (BSD-2-Clause); see `THIRD_PARTY_NOTICES.md`.

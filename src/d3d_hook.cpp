@@ -392,7 +392,8 @@ bool OnDraw(ID3D11DeviceContext* ctx, UINT verts, const char* kind = "", UINT co
     if (IsReticleDraw(ctx, ps, count, &reticleFormat)) {
         g_reticleDraws++;
         if (g_cfg.hookSkipReticle) return false;
-        t_scale = (g_cfg.reticleScale > 0.0f && g_cfg.reticleScale != 1.0f) || g_cfg.reticleFlat;
+        t_scale = (g_cfg.reticleScale > 0.0f && g_cfg.reticleScale != 1.0f) || g_cfg.reticleFlat ||
+                  (g_cfg.reticleAuto && g_cfg.reticleDepthSizing > 0.0f);
         if (t_scale) t_shapeEye = EyeOfRenderTarget(ctx);
         if (g_cfg.reticleAuto && reticleFormat == 77) t_measureEye = EyeOfRenderTarget(ctx);
         if ((g_cfg.reticleKeepInView || g_cfg.reticleAuto) && reticleFormat == 77) t_posEye = EyeOfRenderTarget(ctx);
@@ -448,11 +449,21 @@ bool OnDraw(ID3D11DeviceContext* ctx, UINT verts, const char* kind = "", UINT co
 
 // How a reticle quad drawn into this eye is shown: ReticleScale, and ReticleFlat (which needs
 // the eye's frustum: its eye shift and the lens shift)
+// How much larger auto depth draws the reticle: (Rez's distance / its depth) ^ ReticleDepthSizing,
+// so it grows as it comes nearer, like a real object (1) or less (the default 0.5), within 1/4-4x
+float DepthSize() {
+    const float inv = g_targetInvZ.load();
+    if (!g_cfg.reticleAuto || g_cfg.reticleDepthSizing <= 0.0f || inv <= 0.0f || g_cfg.reticleGameDistance <= 0.0f)
+        return 1.0f;
+    const float f = powf(inv * g_cfg.reticleGameDistance, g_cfg.reticleDepthSizing);
+    return f < 0.25f ? 0.25f : f > 4.0f ? 4.0f : f;
+}
+
 ReticleShape ShapeFor(int eye) {
     ReticleShape s{};
     ReticlePosProjection(s.tanH, s.tanV, s.shiftY);
     s.shiftX = eye == 0 ? g_sepNdc.load() * s.tanH : -g_sepNdc.load() * s.tanH;
-    s.scale = g_cfg.reticleScale > 0.0f ? g_cfg.reticleScale : 1.0f;
+    s.scale = (g_cfg.reticleScale > 0.0f ? g_cfg.reticleScale : 1.0f) * DepthSize();
     s.flat = g_cfg.reticleFlat && eye >= 0 ? 1.0f : 0.0f;
     return s;
 }
@@ -629,8 +640,6 @@ void InstallD3DHooks(ID3D11Device* dev, ID3D11DeviceContext* ctx, const StereoCo
     ReticleDepthSetProbe(g_cfg.reticleDepthProbe.c_str());
     ReticleProbeSetLogEvery(g_cfg.reticleProbeLogEvery);
     ReticleProbeSetNearLimit(NearLimit());
-    // Over the octagon at the game's own size, the area Rez locks onto, however large we draw it
-    ReticleProbeSetBox(g_cfg.reticleDepthBox / (g_cfg.reticleScale > 0.0f ? g_cfg.reticleScale : 1.0f));
     HookDevice(dev, ctx);
     LogPrintf("Hook: D3D11 draw hooks on the eye images' device %p (mode %d, skip reticle %d, always skipping PS %08X)",
               (void*)dev, g_cfg.hookMode, g_cfg.hookSkipReticle, g_cfg.hookSkipPS);
@@ -698,6 +707,9 @@ void UpdateReticleTarget() {
     const float k = 1.0f - expf(-(dt < 0.5f ? dt : 0.5f) / 0.12f);
     g_smoothInvZ = g_smoothInvZ > 0.0f ? g_smoothInvZ + (inv - g_smoothInvZ) * k : inv;
     g_targetInvZ = g_smoothInvZ;
+    // Auto looks over the octagon at the game's own size, the area Rez locks onto, however
+    // large we draw it (reticle size, and the size that comes with depth)
+    ReticleProbeSetBox(g_cfg.reticleDepthBox / ((g_cfg.reticleScale > 0.0f ? g_cfg.reticleScale : 1.0f) * DepthSize()));
     static LARGE_INTEGER lastLog{};
     if (!lastLog.QuadPart || now.QuadPart - lastLog.QuadPart > 2 * g_freq.QuadPart) {
         lastLog = now;

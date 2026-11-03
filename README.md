@@ -133,7 +133,10 @@ Parallax follows 3D Vision: `parallax = Separation × (1 − Convergence / dista
   fly about 200 m out) barely change it; near ones such as a boss do. It takes
   the median of the last few frames, so shots crossing the reticle don't shake
   it, and ignores anything nearer than `ReticleIgnoreNearer` (20 m: the avatar
-  and the floor just below it). In `rez3d.ini`, `ReticleDepth` (meters) sets
+  and the floor just below it). As it comes nearer it also grows, by
+  (440 m / its depth) ^ `ReticleDepthSizing`: 0.5 (default) makes it 1.5 times
+  larger at 200 m and 3 times at 50 m, 1 like a real object, 0 keeps its size.
+  In `rez3d.ini`, `ReticleDepth` (meters) sets
   the depth over empty sky instead, or a fixed depth with `ReticleAuto=0`.
   `ReticleDepthScale` calibrates the distance (raise it if the reticle sits in
   front of targets, lower it if behind). Rez only, not Area X.
@@ -291,7 +294,7 @@ OpenVR folder. The launcher covers the common ones. Others:
 | `LensShift`, `CameraBack`, `CameraUp` | framing and viewpoint (see Camera) |
 | `FollowAim`, `FollowSpeed`, `RightStickLook` | view follows the reticle; right stick turns the view (see Camera) |
 | `Tracking` | `mouse` = experimental mouse head-look |
-| `ReticleAuto`, `ReticleDepth`, `ReticleDepthScale`, `ReticleIgnoreNearer` | reticle depth (see Depth) |
+| `ReticleAuto`, `ReticleDepth`, `ReticleDepthScale`, `ReticleIgnoreNearer`, `ReticleDepthSizing` | reticle depth (see Depth) |
 | `ReticleScale`, `ReticleFlat` | reticle size and shape (see Image quality) |
 | `ReticleKeepInView` | the aim stick stops the reticle at the picture's edges (see Camera) |
 | `GpuComposite` | 0 = slower CPU fallback |

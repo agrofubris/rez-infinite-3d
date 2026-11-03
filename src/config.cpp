@@ -111,6 +111,7 @@ bool LoadConfig(const char* dllDir, StereoConfig& cfg) {
     cfg.reticleDepthScale = getf("reticledepthscale", cfg.reticleDepthScale);
     cfg.reticleIgnoreNearer = getf("reticleignorenearer", cfg.reticleIgnoreNearer);
     cfg.reticleDepthBox = getf("reticledepthbox", cfg.reticleDepthBox);
+    cfg.reticleDepthSizing = getf("reticledepthsizing", cfg.reticleDepthSizing);
     cfg.reticleDepthProbe = get("reticledepthprobe", cfg.reticleDepthProbe);
     cfg.reticleDepthSource = get("reticledepthsource", cfg.reticleDepthSource);
     cfg.reticleDepthIgnorePS = get("reticledepthignoreps", cfg.reticleDepthIgnorePS);

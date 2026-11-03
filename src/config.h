@@ -86,6 +86,9 @@ struct StereoConfig {
     // Where auto looks: this share of the octagon's size (1 = all of it, roughly where Rez locks
     // on; enemies are thin lines, so a small box in the middle rarely lands on one)
     float reticleDepthBox = 1.0f;
+    // ReticleDepthSizing: the reticle grows as auto brings it nearer, by (ReticleGameDistance /
+    // depth) ^ this: 1 = like a real object (9x at 50 m), 0.5 = 3x at 50 m, 0 = off; within 1/4-4x
+    float reticleDepthSizing = 0.5f;
     std::string reticleDepthSource = "draws";  // draws: anything drawn there; buffer: the depth buffer only
     // Pixel shaders whose draws don't count for "draws": Rez's glow sprites (halos around
     // enemies and explosions, hazes, lock-on boxes) cover much more than the thing they belong to

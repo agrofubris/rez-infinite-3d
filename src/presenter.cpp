@@ -355,13 +355,12 @@ int GetMonitorRefreshHz(const StereoConfig& cfg) {
     return dm.dmDisplayFrequency > 1 ? (int)dm.dmDisplayFrequency : 0;
 }
 
+// Every format renders each eye at the screen's shape. Rez keeps its pixels square, so it
+// fits the vertical view to the eye texture's shape, not to the projection we report: a
+// half-width (SBS) or half-height (TAB) eye showed a squashed or cropped view. The
+// compositor squeezes each eye into its half, the half-SBS/TAB layout 3D displays expect.
 void ComputeEyeSize(const StereoConfig& cfg, int outW, int outH, int& eyeW, int& eyeH) {
-    int fmt = ParseFormat(cfg.format);
     int w = outW, h = outH;
-    if (fmt == FMT_SBS || fmt == FMT_SBS_CROSS)
-        w = outW / 2;
-    else if (fmt == FMT_TAB || fmt == FMT_TAB_CROSS)
-        h = outH / 2;
     float scale = cfg.renderScale > 0.05f ? cfg.renderScale : 0.05f;
     if (scale > 2.0f) scale = 2.0f;
     eyeW = (int)(w * scale + 0.5f);

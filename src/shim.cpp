@@ -19,6 +19,7 @@
 #include "log.h"
 #include "presenter.h"
 #include "d3d_hook.h"
+#include "reticle_pos.h"
 
 // Per-frame call statistics (LogFrameCalls=2 logs whenever the pattern changes)
 static const int kMaxSites = 32;
@@ -638,6 +639,7 @@ static void InitRuntimeConfig() {
               g_cfg.gpuComposite, g_cfg.areaX ? "Area X (AreaXConvergence)" : "Rez");
     LogPrintf("Eye render target: %ux%u (output %dx%d), tanH=%.4f tanV=%.4f lensShift=%.1f%%", g_eyeW, g_eyeH, outW,
               outH, g_tanH, g_tanV, g_cfg.lensShift);
+    ReticlePosSetProjection(g_tanH, g_tanV, g_cfg.lensShift * 0.01f * 2.0f * g_tanV);
 
     Presenter::Get().Configure(g_cfg);
     // Test runs stay silent; normal launches undo any mute left from the mixer or a test
@@ -1838,6 +1840,9 @@ extern "C" __declspec(dllexport) void VR_ShutdownInternal() {
 }
 
 extern "C" __declspec(dllexport) bool VR_IsHmdPresent() { return true; }
+
+// For the controller bridge (xinput1_3.dll) in the same process: where Rez's reticle is shown
+extern "C" __declspec(dllexport) int Rez3DReticleState(Rez3DReticleState* out) { return ReticlePosLatest(out); }
 extern "C" __declspec(dllexport) bool VR_IsRuntimeInstalled() { return true; }
 extern "C" __declspec(dllexport) const char* VR_RuntimePath() { return g_dllDir; }
 

@@ -9,11 +9,11 @@
 #include <vector>
 
 #include "log.h"
+#include "reticle_vs.h"
 
 namespace {
 
 std::mutex g_lock;
-std::vector<unsigned char> g_vsCode;
 bool g_failed = false;  // gave up after an error (logged once)
 std::string g_probe;  // testing: "x,y,r" = sample a grid over that box of the screen instead
 ID3D11Device* g_dev = nullptr;
@@ -74,42 +74,12 @@ bool DepthFormats(DXGI_FORMAT depth, DXGI_FORMAT& typeless, DXGI_FORMAT& view) {
 // Our pixel shader: its inputs copy the reticle vertex shader's outputs, so the two link.
 // Pixels in the middle of the quad (the cross) record the depth under them.
 bool BuildShader(ID3D11Device* dev) {
-    ID3D11ShaderReflection* refl = nullptr;
-    HRESULT hr = D3DReflect(g_vsCode.data(), g_vsCode.size(), __uuidof(ID3D11ShaderReflection), (void**)&refl);
-    if (FAILED(hr)) {
-        Fail("reflecting the reticle's vertex shader", hr);
+    std::string fields, pos, uv, error;
+    if (!ReticleVSFields(fields, pos, uv, error)) {
+        Fail(error.c_str(), E_FAIL);
         return false;
     }
-    D3D11_SHADER_DESC sd{};
-    refl->GetDesc(&sd);
-    std::string fields, pos, uv;
-    for (UINT i = 0; i < sd.OutputParameters; i++) {
-        D3D11_SIGNATURE_PARAMETER_DESC p{};
-        refl->GetOutputParameterDesc(i, &p);
-        int n = 0;
-        for (int b = 0; b < 4; b++) n += (p.Mask >> b) & 1;
-        const char* type = p.ComponentType == D3D_REGISTER_COMPONENT_UINT32   ? "uint"
-                           : p.ComponentType == D3D_REGISTER_COMPONENT_SINT32 ? "int"
-                                                                              : "float";
-        char name[16], line[160];
-        sprintf_s(name, "v%u", i);
-        sprintf_s(line, "    %s%d %s : %s%u;\n", type, n, name, p.SemanticName, p.SemanticIndex);
-        if (p.SystemValueType == D3D_NAME_POSITION) {
-            sprintf_s(line, "    float4 %s : SV_Position;\n", name);
-            pos = name;
-        } else if (uv.empty() && _stricmp(p.SemanticName, "TEXCOORD") == 0 && n >= 2 &&
-                   p.ComponentType == D3D_REGISTER_COMPONENT_FLOAT32) {
-            uv = "i." + std::string(name) + ".xy";
-        }
-        fields += line;
-        LogPrintf("Reticle depth: vertex shader output %u: %s%u reg %u mask 0x%X %s%d", i, p.SemanticName,
-                  p.SemanticIndex, p.Register, p.Mask, type, n);
-    }
-    refl->Release();
-    if (pos.empty()) {
-        Fail("finding the vertex shader's position output", E_FAIL);
-        return false;
-    }
+    HRESULT hr = S_OK;
     // Under the quad's middle (the cross), or, testing, a grid over the whole screen
     std::string sample;
     float px = 0, py = 0, pr = 0;
@@ -258,21 +228,10 @@ void Collect(ID3D11DeviceContext* ctx, EyeState& e) {
 
 void ReticleDepthSetProbe(const char* box) { g_probe = box ? box : ""; }
 
-void ReticleDepthSetVSCode(const void* code, size_t size) {
-    std::lock_guard<std::mutex> lk(g_lock);
-    if (!g_vsCode.empty()) return;
-    const unsigned char* p = static_cast<const unsigned char*>(code);
-    g_vsCode.assign(p, p + size);
-}
-
 void ReticleDepthMeasure(ID3D11DeviceContext* ctx, int eye, const std::function<void()>& draw) {
     if (eye < 0 || eye > 1) return;
     std::lock_guard<std::mutex> lk(g_lock);
     if (g_failed) return;
-    if (g_vsCode.empty()) {
-        Fail("finding the reticle's vertex shader bytecode", E_FAIL);
-        return;
-    }
     ID3D11DepthStencilView* dsv = nullptr;
     ctx->OMGetRenderTargets(0, nullptr, &dsv);
     if (!dsv) return;  // nothing to read this time

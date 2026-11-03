@@ -87,6 +87,10 @@ struct StereoConfig {
     // ReticleScale: the reticle's size, x the game's (it draws it at a fixed pixel size, so it
     // looks smaller at higher resolutions and render scales). Grows around its centre.
     float reticleScale = 1.0f;
+    // ReticleKeepInView=1: the controller bridge stops the aim stick at the edges of the
+    // picture, so the reticle can't leave the view (Rez lets it go about 50 deg across and
+    // 43 deg up/down, wider than most fields of view). The runtime measures where it is.
+    int reticleKeepInView = 1;
     unsigned hookHuntTexOf = 0;     // HookHuntTexOf: hunt over the textures this pixel shader samples, one at a time
     // Follow aim: the virtual head turns toward where the left stick has moved the
     // reticle, like the camera of the non-VR versions. 0 = off.

@@ -166,7 +166,7 @@ namespace Rez3D
             iniPaths.Add(Path.Combine(root, @"REZ\rez3d.ini"));
             var ax = Path.Combine(root, @"AX\Engine\Binaries\ThirdParty\OpenVR\OpenVRv1_0_2\Win64\rez3d.ini");
             if (File.Exists(ax)) iniPaths.Add(ax);
-            ClientSize = new Size(1280, 840);
+            ClientSize = new Size(1280, 866);
             items.Clear();
             selected = 0;
             BuildItems();
@@ -375,6 +375,8 @@ namespace Rez3D
                    "auto puts the reticle at the depth of what is under it, so near targets and the reticle fuse");
             Num("size", "ReticleScale", 0.5, 4.0, 0.25, 1, 2, "x",
                 "draws the reticle bigger or smaller, in place. 1 = the game's size; try 2 at 4k or render scale 1.5");
+            Choice("keep in view", "ReticleKeepInView", new[] { "1", "0" }, new[] { "on", "off" }, "1",
+                   "the aim stick stops the reticle at the picture's edges, so it can't leave the view");
 
             Section("controller", 1);
             Num("stick speed", "PadStickSpeed", 10, 100, 5, 60, 0, " %",

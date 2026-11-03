@@ -15,6 +15,8 @@ add_library(openvr_api SHARED
     src/d3d_hook.cpp
     src/reticle_depth.cpp
     src/reticle_scale.cpp
+    src/reticle_vs.cpp
+    src/reticle_pos.cpp
     vendor/minhook/src/buffer.c
     vendor/minhook/src/hook.c
     vendor/minhook/src/trampoline.c

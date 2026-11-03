@@ -195,6 +195,12 @@ it for a monitor:
   controls), read from the game's options when it starts. Rez saves that option
   when it quits, so after changing it, restart the game (or set `PadRezSpeed` in
   `rez3d.ini`). Rez only, not Area X.
+- **Keep in view** (reticle section, default on): Rez lets the reticle go about
+  50° across and 43° up and down from the middle, wider than the picture at
+  most fields of view. The 3D runtime measures where the reticle is shown, and
+  the aim stick brakes and stops it at the picture's edges, with the whole
+  octagon in view. Where the reticle drifts out sideways along an edge, a gentle
+  push brings it back in. Off during an L3 recenter. Rez only, not Area X.
 - `CameraBack` and `CameraUp` in `rez3d.ini` move the viewpoint in meters, for
   experiments.
 
@@ -274,6 +280,7 @@ OpenVR folder. The launcher covers the common ones. Others:
 | `Tracking` | `mouse` = experimental mouse head-look |
 | `ReticleAuto`, `ReticleDepth`, `ReticleDepthScale`, `ReticleMinDepth` | reticle depth (see Depth) |
 | `ReticleScale` | reticle size (see Image quality) |
+| `ReticleKeepInView` | the aim stick stops the reticle at the picture's edges (see Camera) |
 | `GpuComposite` | 0 = slower CPU fallback |
 | `LogFrameCalls`, `DumpFrames`, `DumpAfter`, `DumpEvery`, `DumpAfterSec`, `DumpEverySec` | debugging (frame dumps by frame count or by seconds) |
 

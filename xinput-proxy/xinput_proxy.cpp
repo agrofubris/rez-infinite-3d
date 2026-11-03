@@ -9,12 +9,15 @@
 #include <tlhelp32.h>
 #include <mmsystem.h>
 #include <xinput.h>
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+
+#include "../src/reticle_state.h"
 
 #pragma comment(lib, "winmm.lib")
 
@@ -277,6 +280,8 @@ struct PadMap {
     bool fireOnRB = false;     // PadFireOnRB: the right bumper fires (A), freeing the thumb for the right stick
     bool recenter = true;      // PadRecenter: L3 brings the reticle back to the middle (Rez)
     int rezSpeed = -1;         // PadRezSpeed: Rez's own gamepad speed for the recenter (auto = read it)
+    bool keepInView = true;    // ReticleKeepInView: stop the aim stick at the edges of the picture (Rez)
+    bool reticleLog = false;   // PadReticleLog: log every reticle measurement with the stick sent (testing)
     bool enabled = true;
 };
 
@@ -309,6 +314,7 @@ static void ApplyIniOverrides(PadMap& m) {
     while (fgets(line, sizeof(line), f)) {
         char key[64] = {}, val[64] = {};
         if (sscanf_s(line, " %63[^= \t] = %63s", key, (unsigned)sizeof(key), val, (unsigned)sizeof(val)) != 2) continue;
+        if (_stricmp(key, "ReticleKeepInView") == 0) m.keepInView = atoi(val) != 0;
         if (_strnicmp(key, "Pad", 3) != 0) continue;
         const char* k = key + 3;
         int n = atoi(val);
@@ -327,6 +333,7 @@ static void ApplyIniOverrides(PadMap& m) {
         if (_stricmp(k, "Recenter") == 0) m.recenter = n != 0;
         if (_stricmp(k, "RezSpeed") == 0) m.rezSpeed = isdigit((unsigned char)val[0]) ? n : -1;
         if (_stricmp(k, "Bridge") == 0) m.enabled = n != 0;
+        if (_stricmp(k, "ReticleLog") == 0) m.reticleLog = n != 0;
     }
     fclose(f);
 }
@@ -683,9 +690,189 @@ static void Apply(XINPUT_GAMEPAD& g) {
 }
 }  // namespace recenter
 
+// ---------------------------------------------------------------------------
+// Keep the reticle in view (Rez)
+// ---------------------------------------------------------------------------
+// Rez lets its reticle go about 50 deg across and 43 deg up/down from the middle of the
+// view, wider than most fields of view, and it stays wherever it was left. The 3D runtime
+// measures where the reticle is shown in each eye (openvr_api.dll's export
+// Rez3DReticleState, read back about 1 ms after the draw), and this stops the aim stick
+// before the reticle leaves the picture: outward tilt is capped by the room left to the
+// edge, so it brakes over the last stretch and stops with the whole octagon in view. Rez
+// reacts to the stick on its next 60 Hz tick, so the cap leaves a few frames of travel
+// (kBrake, kLag). Its reticle also drifts on one axis as it moves along the other, so one
+// that ends up past an edge anyway gets a gentle push back in (kReturn), and slides along
+// the edge. Off during an L3 recenter, and when the reticle is not being drawn (menus,
+// pause, Area X).
+namespace inview {
+const double kFresh = 0.1;       // only a reticle drawn this recently counts (seconds)
+const float kEdge = 0.98f;       // keep the octagon inside this share of the picture
+const float kBrake = 0.06f;      // outward speed is capped at room / kBrake (seconds)
+const float kGainStart = 4.0f;   // picture half-widths per second at full tilt, until measured
+const float kLag = 0.04f;        // seconds it keeps travelling after the stick changes (a tick and a frame)
+const float kReturn = 0.3f;      // the most tilt used to push it back in (past the dead zone)
+
+static int g_mode = -1;  // -1 = not decided yet, 0 = off, 1 = on
+static bool g_gate = false;
+static bool g_log = false;
+static float g_dz = 0.24f;  // the game's own dead zone (PadGameDeadzone)
+static Rez3DReticleStateFn g_state = nullptr;
+static int g_lastSeq = -1;
+// Measured speed per unit of tilt past the dead zone, per axis, learned while it moves
+static float g_gain[2] = { kGainStart, kGainStart };
+static float g_sent[2] = {};  // the tilt (past the dead zone, signed) sent last
+static float g_vel[2] = {};   // its speed over the last 30 ms or more (picture half-widths per second)
+static bool g_anchor = false;
+static double g_anchorT = 0;
+static float g_anchorP[2] = {};
+static int g_braking[2] = {};  // 0 free, 1 braking, 2 pushing back in (for the log)
+
+static bool Enabled() {
+    if (g_mode < 0) {
+        PadMap m;
+        ApplyIniOverrides(m);
+        char dir[MAX_PATH];
+        strcpy_s(dir, g_dir);
+        _strupr_s(dir);
+        const bool rez = !strstr(dir, "\\REZAX\\");
+        g_gate = m.keepInView && rez;
+        g_log = m.reticleLog && rez;
+        g_dz = m.gameDeadzone;
+        g_mode = g_gate || g_log ? 1 : 0;
+        Log("keep in view: %s%s", g_gate ? "on" : "off", g_log ? " (logging the reticle)" : "");
+    }
+    if (g_mode == 1 && !g_state) {
+        HMODULE vr = GetModuleHandleW(L"openvr_api.dll");
+        if (vr) g_state = (Rez3DReticleStateFn)GetProcAddress(vr, "Rez3DReticleState");
+    }
+    return g_mode == 1 && g_state;
+}
+
+static double Now() {
+    static LARGE_INTEGER freq{};
+    if (!freq.QuadPart) QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    return (double)t.QuadPart / (double)freq.QuadPart;
+}
+
+// Stick value <-> signed tilt past the game's dead zone (0..1)
+static float Tilt(SHORT v) {
+    const float a = fabsf(v / 32767.0f);
+    float f = a > g_dz ? (a - g_dz) / (1.0f - g_dz) : 0.0f;
+    if (f > 1.0f) f = 1.0f;
+    return v < 0 ? -f : f;
+}
+static SHORT FromTilt(float f) {
+    if (f == 0.0f) return 0;
+    const float a = g_dz + (1.0f - g_dz) * fabsf(f);
+    return (SHORT)((f < 0 ? -a : a) * 32767.0f);
+}
+
+// While the reticle moves sideways, an occasional single reading is of another, about twice
+// as wide quad drawn like the octagon: skip a reading that suddenly grows that much over the
+// one before (the octagon itself only grows gradually, toward the edges)
+static bool Plausible(const Rez3DReticleState& s) {
+    static float last[2] = {};
+    const float hx = (std::max)(s.halfX[0], s.halfX[1]), hy = (std::max)(s.halfY[0], s.halfY[1]);
+    const bool jump = last[0] > 0.0f && (hx > 1.4f * last[0] || hy > 1.4f * last[1]);
+    last[0] = hx;
+    last[1] = hy;
+    return !jump;
+}
+
+static void Apply(XINPUT_GAMEPAD& g) {
+    if (!Enabled()) return;
+    static Rez3DReticleState s{};  // the latest plausible reading
+    Rez3DReticleState now{};
+    const bool have = g_state(&now) && now.version == kRez3DReticleStateVersion && now.drawnAgo <= kFresh;
+    bool fresh = have && now.sequence != g_lastSeq;
+    if (fresh) {
+        g_lastSeq = now.sequence;
+        if (g_log)
+            Log("reticle: x %+.4f %+.4f y %+.4f %+.4f half %.4f %.4f drawn %.1f ms ago | stick %d,%d", now.x[0],
+                now.x[1], now.y[0], now.y[1], now.halfX[0], now.halfY[0], now.drawnAgo * 1000.0, g.sThumbLX,
+                g.sThumbLY);
+        fresh = Plausible(now);
+        if (fresh) s = now;
+    }
+    if (!have || !s.version || !g_gate || recenter::g_active) {
+        g_anchor = false;
+        g_vel[0] = g_vel[1] = 0.0f;
+        g_sent[0] = Tilt(g.sThumbLX);
+        g_sent[1] = Tilt(g.sThumbLY);
+        return;
+    }
+    const float p[2] = { 0.5f * (s.x[0] + s.x[1]), 0.5f * (s.y[0] + s.y[1]) };
+    // How fast it moves per unit of tilt: from its travel over at least 30 ms of steady
+    // outward-or-inward tilt, inside the picture (Rez's own stops are outside it)
+    if (fresh) {
+        const double t = Now();
+        if (!g_anchor) {
+            g_anchor = true;
+            g_anchorT = t;
+            g_anchorP[0] = p[0];
+            g_anchorP[1] = p[1];
+        } else if (t - g_anchorT >= 0.03) {
+            for (int a = 0; a < 2; a++) {
+                const float v = (p[a] - g_anchorP[a]) / (float)(t - g_anchorT);
+                const float f = g_sent[a];
+                if (fabsf(f) >= 0.25f && v * f > 0.0f && fabsf(p[a]) < 1.0f) {
+                    const float seen = fabsf(v / f);
+                    g_gain[a] = seen > g_gain[a] ? seen : 0.9f * g_gain[a] + 0.1f * seen;
+                }
+                g_vel[a] = v;
+                g_anchorP[a] = p[a];
+            }
+            g_anchorT = t;
+        }
+    }
+    // Room to the edge each way, for the eye whose octagon is nearest to it
+    const float right = (std::max)(s.x[0] + s.halfX[0], s.x[1] + s.halfX[1]);
+    const float left = (std::min)(s.x[0] - s.halfX[0], s.x[1] - s.halfX[1]);
+    const float top = (std::max)(s.y[0] + s.halfY[0], s.y[1] + s.halfY[1]);
+    const float bottom = (std::min)(s.y[0] - s.halfY[0], s.y[1] - s.halfY[1]);
+    SHORT* stick[2] = { &g.sThumbLX, &g.sThumbLY };
+    const float roomPlus[2] = { kEdge - right, kEdge - top };
+    const float roomMinus[2] = { left + kEdge, bottom + kEdge };
+    static const char* kAxis[2] = { "x", "y" };
+    for (int a = 0; a < 2; a++) {
+        const float f = Tilt(*stick[a]);
+        float out = f;
+        // Outward: capped by the room left, less what it is still travelling (it speeds up
+        // toward the side edges, faster than the speed learned further in)
+        const float room = f > 0 ? roomPlus[a] : roomMinus[a];
+        const float coming = f != 0.0f ? (std::max)(0.0f, (f > 0 ? g_vel[a] : -g_vel[a]) * kLag) : 0.0f;
+        float cap = room - coming > 0.0f ? (room - coming) / (g_gain[a] * kBrake) : 0.0f;
+        if (cap < 0.02f) cap = 0.0f;  // below the smallest step: stop
+        if (f != 0.0f && fabsf(f) > cap) out = f > 0 ? cap : -cap;
+        // Past an edge (an overshoot, or pulled out sideways: the reticle drifts on the other
+        // axis as it moves): push gently back in, unless already going back faster
+        const bool overPlus = roomPlus[a] < 0.0f, overMinus = roomMinus[a] < 0.0f;
+        if (overPlus != overMinus) {
+            const float over = overPlus ? -roomPlus[a] : -roomMinus[a];
+            float back = (std::min)(kReturn, over / (g_gain[a] * kBrake));
+            if (overPlus) back = -back;
+            if (back < 0.0f ? out > back : out < back) out = back;
+        }
+        if (out != f) *stick[a] = FromTilt(out);
+        const int state = out == f ? 0 : (out * f <= 0.0f && out != 0.0f) ? 2 : 1;
+        if (state != g_braking[a] && g_log)
+            Log("keep in view: %s %s (room %+.3f %+.3f, speed %+.2f, gain %.2f)", kAxis[a],
+                state == 0 ? "free" : state == 1 ? "braking" : "pushing back in", roomMinus[a], roomPlus[a], g_vel[a],
+                g_gain[a]);
+        g_braking[a] = state;
+        g_sent[a] = Tilt(*stick[a]);
+    }
+}
+}  // namespace inview
+
 extern "C" DWORD WINAPI XInputGetState(DWORD index, XINPUT_STATE* state) noexcept {
     const DWORD r = GetPadState(index, state);
-    if (index == 0 && r == ERROR_SUCCESS && state) recenter::Apply(state->Gamepad);
+    if (index == 0 && r == ERROR_SUCCESS && state) {
+        recenter::Apply(state->Gamepad);
+        inview::Apply(state->Gamepad);
+    }
     return r;
 }
 

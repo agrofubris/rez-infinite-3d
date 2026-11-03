@@ -9,10 +9,6 @@
 // ours that collects the depth under the quad's middle, and reads the result back a couple of
 // frames later (no stall).
 
-// The reticle's vertex shader bytecode (kept at creation): our pixel shader's inputs must
-// match its outputs.
-void ReticleDepthSetVSCode(const void* code, size_t size);
-
 // At the reticle's draw, with the game's state bound; draw() issues that draw call again.
 void ReticleDepthMeasure(ID3D11DeviceContext* ctx, int eye, const std::function<void()>& draw);
 

@@ -336,7 +336,9 @@ namespace Rez3D
             int screens = Math.Max(1, Monitors.List.Count);
             Num("monitor", "Monitor", 0, screens - 1, 1, 0, 0, "", "display to play on (0 = your primary display)");
             Num("render scale", "RenderScale", 0.5, 2.0, 0.25, 1.5, 2, "x",
-                "per eye resolution. it also sets the reticle's size: 1.5 = small, sharp; 0.75 = big, softer scene");
+                "per eye resolution. above 1 = sharper, below 1 = faster. the game's reticle shrinks as it rises");
+            Num("reticle size", "ReticleScale", 0.5, 4.0, 0.25, 1, 2, "x",
+                "draws rez's reticle bigger or smaller, in place. 1 = the game's size; try 2 at 4k or render scale 1.5");
             Choice("vsync", "VSync", new[] { "1", "0" }, new[] { "on", "off" }, "1", "sync to the display refresh");
             Choice("frame pacing", "FramePacing", new[] { "1", "0" }, new[] { "on", "off" }, "1",
                    "hold the game to the display rate like a vr compositor");

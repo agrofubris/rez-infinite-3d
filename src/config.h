@@ -84,6 +84,9 @@ struct StereoConfig {
     float reticleMinDepth = 3.0f;
     std::string reticleDepthProbe;  // testing: "x,y,r" measures a box of the screen (pixels) instead
     unsigned reticleVS = 0x04688A8A;
+    // ReticleScale: the reticle's size, x the game's (it draws it at a fixed pixel size, so it
+    // looks smaller at higher resolutions and render scales). Grows around its centre.
+    float reticleScale = 1.0f;
     unsigned hookHuntTexOf = 0;     // HookHuntTexOf: hunt over the textures this pixel shader samples, one at a time
     // Follow aim: the virtual head turns toward where the left stick has moved the
     // reticle, like the camera of the non-VR versions. 0 = off.

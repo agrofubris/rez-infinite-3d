@@ -14,6 +14,7 @@
 #include "config.h"
 #include "log.h"
 #include "reticle_depth.h"
+#include "reticle_scale.h"
 
 namespace {
 
@@ -82,6 +83,7 @@ std::unordered_map<void*, int> g_eyeOfTex;
 thread_local float t_shift = 0.0f;     // set by OnDraw: shift this draw's viewport (pixels)...
 thread_local float t_shiftNdc = 0.0f;  // ...or by this share of half its width (NDC units)
 thread_local int t_measureEye = -1;    // measure the depth under this draw (the reticle's octagon) for this eye
+thread_local bool t_scale = false;     // draw this one at ReticleScale (a reticle quad)
 std::atomic<float> g_sepNdc{ 0.0f }, g_convergence{ 0.0f };
 std::atomic<float> g_targetInvZ{ 0.0f };  // where the reticle goes, 1 / meters (0 = not decided yet)
 float g_smoothInvZ = 0.0f;
@@ -168,7 +170,10 @@ HRESULT STDMETHODCALLTYPE HookCreateVS(ID3D11Device* dev, const void* code, SIZE
         const uint32_t h = Fnv1a(code, size);
         std::lock_guard<std::mutex> lk(g_lock);
         g_shaderHash[*out] = h;
-        if (h == g_cfg.reticleVS) ReticleDepthSetVSCode(code, size);
+        if (h == g_cfg.reticleVS) {
+            ReticleDepthSetVSCode(code, size);
+            ReticleScaleSetVSCode(code, size);
+        }
     }
     return hr;
 }
@@ -278,6 +283,7 @@ bool OnDraw(ID3D11DeviceContext* ctx, UINT verts, const char* kind = "", UINT co
     t_shift = 0.0f;
     t_shiftNdc = 0.0f;
     t_measureEye = -1;
+    t_scale = false;
     ID3D11Device* dev = DeviceOf(ctx);
     if (dev == g_ownDev) return true;
     std::lock_guard<std::mutex> lk(g_lock);
@@ -370,6 +376,7 @@ bool OnDraw(ID3D11DeviceContext* ctx, UINT verts, const char* kind = "", UINT co
     if (IsReticleDraw(ctx, ps, count, &reticleFormat)) {
         g_reticleDraws++;
         if (g_cfg.hookSkipReticle) return false;
+        t_scale = g_cfg.reticleScale > 0.0f && g_cfg.reticleScale != 1.0f;
         if (g_cfg.reticleAuto && reticleFormat == 77) t_measureEye = EyeOfRenderTarget(ctx);
         if (g_cfg.reticleShiftPx != 0.0f || g_cfg.reticleDepth > 0.0f || g_cfg.reticleAuto) {
             const int eye = EyeOfRenderTarget(ctx);
@@ -416,9 +423,15 @@ bool OnDraw(ID3D11DeviceContext* ctx, UINT verts, const char* kind = "", UINT co
     return !(g_skipPS && ps == g_skipPS);
 }
 
-// Runs a draw with the viewport moved sideways by t_shift pixels, then puts it back
+// Runs a draw with the viewport moved sideways by t_shift pixels, then puts it back; a
+// reticle quad is drawn at ReticleScale
 template <typename F>
 void DrawShifted(ID3D11DeviceContext* ctx, F draw) {
+    if (t_scale) {
+        t_scale = false;
+        ReticleScaleDraw(ctx, g_cfg.reticleScale, [&] { DrawShifted(ctx, draw); });
+        return;
+    }
     if (t_shift == 0.0f && t_shiftNdc == 0.0f) {
         draw();
         return;
@@ -520,7 +533,8 @@ void D3DHookSetOwnDevice(ID3D11Device* dev) { g_ownDev = dev; }
 // The hooks run for the reticle settings and the test modes; never in Area X (other shaders)
 bool HooksWanted(const StereoConfig& cfg) {
     if (cfg.areaX) return false;
-    return cfg.hookMode > 0 || cfg.reticleAuto || cfg.reticleDepth > 0.0f || cfg.reticleShiftPx != 0.0f;
+    return cfg.hookMode > 0 || cfg.reticleAuto || cfg.reticleDepth > 0.0f || cfg.reticleShiftPx != 0.0f ||
+           (cfg.reticleScale > 0.0f && cfg.reticleScale != 1.0f);
 }
 
 void D3DHookSetStereo(float separationNdc, float convergence) {

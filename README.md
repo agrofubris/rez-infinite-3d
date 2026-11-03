@@ -155,9 +155,11 @@ Each eye only gets every other row, and Rez is made of thin lines.
 
 - **Render scale** 1.5 (default) supersamples each eye. 2.0 is sharper if
   your GPU has headroom. The game draws its VR reticle at a fixed pixel size,
-  so lowering render scale also makes the reticle bigger on screen (and the
-  scene softer): 1.5 is small and sharp, 0.75 is big and soft.
-  Keep **Rez's own VR supersampling at 100 %** (in the game's VR settings) and
+  so it looks smaller at higher render scales and resolutions.
+- **Reticle size** (default 1): draws Rez's reticle bigger or smaller, around
+  its own centre, so it still aims at the same spot. Try 2 at 4K or at render
+  scale 1.5. Rez only, not Area X.
+- Keep **Rez's own VR supersampling at 100 %** (in the game's VR settings) and
   use render scale instead: the two multiply, and at 250 % a 4K display asks
   the GPU for 6.25 times the pixels per eye. `REZ\rez3d.log` says so
   ("the game submits each eye at …").
@@ -271,6 +273,7 @@ OpenVR folder. The launcher covers the common ones. Others:
 | `FollowAim`, `FollowSpeed`, `RightStickLook` | view follows the reticle; right stick turns the view (see Camera) |
 | `Tracking` | `mouse` = experimental mouse head-look |
 | `ReticleAuto`, `ReticleDepth`, `ReticleDepthScale`, `ReticleMinDepth` | reticle depth (see Depth) |
+| `ReticleScale` | reticle size (see Image quality) |
 | `GpuComposite` | 0 = slower CPU fallback |
 | `LogFrameCalls`, `DumpFrames`, `DumpAfter`, `DumpEvery`, `DumpAfterSec`, `DumpEverySec` | debugging (frame dumps by frame count or by seconds) |
 
@@ -311,7 +314,7 @@ Layout: `src/` holds the VR runtime and 3D compositor (D3D11, shared textures,
 HLSL composite), `xinput-proxy/` the controller bridge, `launcher/` the
 settings screen (C#), `leia/` the optional Leia SR loader, and `vendor/` the
 OpenVR 1.0.2 C API header and MinHook 1.3.3, which hooks the game's Direct3D 11
-draw calls for reticle depth.
+draw calls for the reticle's depth and size.
 
 Testing without taking over your screen: `build\tools\RunHidden.exe 30
 "<game>\Rez-infinite.exe" vr=1` runs the game on a hidden Windows desktop,
@@ -351,7 +354,8 @@ Stereo 3D:
 - The NVIDIA 3D Vision and geo-11 community, whose separation and
   convergence conventions this add-on follows
 
-Code: **Tsuda Kageyu**'s MinHook, which the reticle depth hooks are built on.
+Code: **Tsuda Kageyu**'s MinHook, which the reticle depth and size hooks are
+built on.
 
 ## Licence
 

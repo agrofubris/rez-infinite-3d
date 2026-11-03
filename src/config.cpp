@@ -112,6 +112,7 @@ bool LoadConfig(const char* dllDir, StereoConfig& cfg) {
     cfg.reticleMinDepth = getf("reticlemindepth", cfg.reticleMinDepth);
     cfg.reticleDepthProbe = get("reticledepthprobe", cfg.reticleDepthProbe);
     cfg.reticleVS = (unsigned)strtoul(get("reticlevs", "04688A8A").c_str(), nullptr, 16);
+    cfg.reticleScale = getf("reticlescale", cfg.reticleScale);
     cfg.hookHuntTexOf = (unsigned)strtoul(get("hookhunttexof", "0").c_str(), nullptr, 16);
     cfg.followAim = getf("followaim", cfg.followAim);
     cfg.followSpeed = getf("followspeed", cfg.followSpeed);

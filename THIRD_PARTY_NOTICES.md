@@ -40,7 +40,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 `openvr_api.dll` includes MinHook 1.3.3 (https://github.com/TsudaKageyu/minhook),
 in `vendor/minhook`. It hooks the game's Direct3D 11 draw calls for the reticle depth
-settings. Licence:
+and size settings. Licence:
 
 ```
 MinHook - The Minimalistic API Hooking Library for x64/x86

@@ -289,6 +289,13 @@ namespace Rez3D
         string section;
         int column;
 
+        // Testing (--snapshot ... --select <label>): the row a snapshot shows selected
+        public void SelectForSnapshot(string label)
+        {
+            int i = items.FindIndex(it => it.Label == label);
+            if (i >= 0) selected = i;
+        }
+
         void Section(string name, int col)
         {
             section = name;
@@ -323,8 +330,6 @@ namespace Rez3D
                 "rez: distance placed on the screen. ~20 keeps the avatar on the screen, higher pops out");
             Num("area x convergence", "AreaXConvergence", 0.5, 50, 0.1, 3, 1, " m",
                 "area x is built closer: ~3 puts the crosshair on the screen, everything else behind it");
-            Choice("reticle depth", "ReticleAuto", new[] { "0", "1" }, new[] { "game", "auto" }, "0",
-                   "auto puts the reticle at the depth of what is under it, so near targets and the reticle fuse");
             Num("menu separation", "MenuSeparation", -5, 200, 5, -5, 0, " %",
                 "experimental: lower depth in detected menus. can misfire in sparse gameplay");
 
@@ -337,8 +342,6 @@ namespace Rez3D
             Num("monitor", "Monitor", 0, screens - 1, 1, 0, 0, "", "display to play on (0 = your primary display)");
             Num("render scale", "RenderScale", 0.5, 2.0, 0.25, 1.5, 2, "x",
                 "per eye resolution. above 1 = sharper, below 1 = faster. the game's reticle shrinks as it rises");
-            Num("reticle size", "ReticleScale", 0.5, 4.0, 0.25, 1, 2, "x",
-                "draws rez's reticle bigger or smaller, in place. 1 = the game's size; try 2 at 4k or render scale 1.5");
             Choice("vsync", "VSync", new[] { "1", "0" }, new[] { "on", "off" }, "1", "sync to the display refresh");
             Choice("frame pacing", "FramePacing", new[] { "1", "0" }, new[] { "on", "off" }, "1",
                    "hold the game to the display rate like a vr compositor");
@@ -366,6 +369,12 @@ namespace Rez3D
                 "the right stick turns the view to find the reticle or a boss. r3 recenters. 0 = off");
             Choice("head look", "Tracking", new[] { "off", "mouse" }, new[] { "off", "mouse" }, "off",
                    "experimental: move the camera with the mouse");
+
+            Section("reticle", 1);
+            Choice("depth", "ReticleAuto", new[] { "0", "1" }, new[] { "game", "auto" }, "0",
+                   "auto puts the reticle at the depth of what is under it, so near targets and the reticle fuse");
+            Num("size", "ReticleScale", 0.5, 4.0, 0.25, 1, 2, "x",
+                "draws the reticle bigger or smaller, in place. 1 = the game's size; try 2 at 4k or render scale 1.5");
 
             Section("controller", 1);
             Num("stick speed", "PadStickSpeed", 10, 100, 5, 60, 0, " %",
@@ -1122,6 +1131,15 @@ namespace Rez3D
                 Array.Copy(args, 2, rest, 0, rest.Length);
                 args = rest;
             }
+            // Testing: --select <label> selects that row in the snapshot
+            string snapshotSelect = null;
+            if (args.Length >= 2 && args[0] == "--select")
+            {
+                snapshotSelect = args[1];
+                var rest = new string[args.Length - 2];
+                Array.Copy(args, 2, rest, 0, rest.Length);
+                args = rest;
+            }
             // Without a window: Rez3D.exe --install <game folder> / --uninstall <game folder>
             // [--keep-settings] [--quiet] [--wait-pid N] (the launcher's uninstall uses the last)
             if (args.Length >= 2 && (args[0] == "--install" || args[0] == "--uninstall"))
@@ -1170,6 +1188,7 @@ namespace Rez3D
             var form = new LauncherForm(root, setupRoots);
             if (snapshot != null)
             {
+                if (snapshotSelect != null) form.SelectForSnapshot(snapshotSelect);
                 // Testing: render the launcher to an image without ever showing it
                 using (var bmp = new Bitmap(form.ClientSize.Width, form.ClientSize.Height))
                 {

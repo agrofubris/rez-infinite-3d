@@ -1523,11 +1523,9 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
     const bool leiaMode = m_format == FMT_LEIA_SR;
     HWND leiaWindow = m_hwnd;
     if (leiaMode && m_hwnd && m_cfg.leiaWindow != "own") leiaWindow = GetAncestor(m_hwnd, GA_ROOT);
-    if (leiaMode) {
-        MatchWindowSize();
-        if (!m_rtv) return;
-        LogLeiaGeometry(leiaWindow);
-    }
+    MatchWindowSize();
+    if (!m_rtv) return;
+    if (leiaMode) LogLeiaGeometry(leiaWindow);
     const bool weave = leiaMode && m_leia.Ready(m_device, m_context, leiaWindow, m_outW, m_outH);
     const int fmt = leiaMode ? FMT_SBS : m_format;
     const int compW = weave ? (m_outW & ~1) * 2 : m_outW;
@@ -1847,10 +1845,11 @@ float Presenter::EffectiveSeparation(float gameplaySeparation) {
     return gameplaySeparation + (m_cfg.menuSeparation - gameplaySeparation) * b;
 }
 
-// Leia SR weaves per physical pixel, so the woven image has to reach the screen
-// 1:1. The swapchain starts at the monitor's mode, but the window it shows in is
-// the game's and can differ (another resolution, a resize): follow the window's
-// client size instead of letting DXGI stretch the weave.
+// The Leia SR weave, row interlacing and the checkerboard work per physical pixel,
+// so the composite has to reach the screen 1:1. The swapchain starts at the
+// monitor's mode, but the window it shows in is the game's and can differ (another
+// resolution, a resize): follow the window's client size instead of letting DXGI
+// stretch the picture.
 void Presenter::MatchWindowSize() {
     if (!m_swapChain || !m_hwnd) return;
     RECT rc{};

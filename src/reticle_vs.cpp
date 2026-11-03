@@ -23,11 +23,13 @@ void ReticleVSSetCode(const void* code, size_t size) {
     g_code.assign(p, p + size);
 }
 
-bool ReticleVSFields(std::string& fields, std::string& pos, std::string& uv, std::string& error) {
+bool ReticleVSFields(std::string& fields, std::string& pos, std::string& uv, std::string& error,
+                     std::string* color) {
     std::lock_guard<std::mutex> lk(g_lock);
     fields.clear();
     pos.clear();
     uv.clear();
+    if (color) color->clear();
     if (g_code.empty()) {
         error = "finding the reticle's vertex shader bytecode";
         return false;
@@ -56,6 +58,9 @@ bool ReticleVSFields(std::string& fields, std::string& pos, std::string& uv, std
         } else if (uv.empty() && _stricmp(p.SemanticName, "TEXCOORD") == 0 && n >= 2 &&
                    p.ComponentType == D3D_REGISTER_COMPONENT_FLOAT32) {
             uv = "i." + std::string(name) + ".xy";
+        } else if (color && color->empty() && _stricmp(p.SemanticName, "COLOR") == 0 && n == 4 &&
+                   p.ComponentType == D3D_REGISTER_COMPONENT_FLOAT32) {
+            *color = "i." + std::string(name);
         }
         fields += line;
         if (!g_logged)

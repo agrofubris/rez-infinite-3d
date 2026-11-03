@@ -36,6 +36,7 @@ struct EyeState {
     bool have = false;
     LARGE_INTEGER drawn{};
     float x = 0, y = 0, hx = 0, hy = 0;
+    float gameX = 0;  // x where the game draws it, before our reticle depth shift
     unsigned measured = 0;
     double lagSum = 0;
     unsigned lagCount = 0;
@@ -196,6 +197,7 @@ void Collect(ID3D11DeviceContext* ctx, EyeState& e) {
         QueryPerformanceCounter(&now);
         e.lagSum += (double)(now.QuadPart - e.issued[i].QuadPart) / (double)g_freq.QuadPart;
         e.lagCount++;
+        e.gameX = v[0];
         e.x = v[0] + e.shift[i];
         e.y = v[1];
         e.hx = v[2];
@@ -213,6 +215,18 @@ void ReticlePosSetProjection(float tanH, float tanV, float shiftV) {
     g_tanH = tanH;
     g_tanV = tanV;
     g_shiftV = shiftV;
+}
+
+bool ReticlePosAim(int eye, float& x, float& y, float& halfX, float& halfY) {
+    if (eye < 0 || eye > 1) return false;
+    std::lock_guard<std::mutex> lk(g_lock);
+    const EyeState& e = g_eye[eye];
+    if (!e.have) return false;
+    x = e.gameX;
+    y = e.y;
+    halfX = e.hx;
+    halfY = e.hy;
+    return true;
 }
 
 void ReticlePosProjection(float& tanH, float& tanV, float& shiftV) {

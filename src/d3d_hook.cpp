@@ -15,6 +15,7 @@
 #include "log.h"
 #include "reticle_depth.h"
 #include "reticle_pos.h"
+#include "reticle_probe.h"
 #include "reticle_scale.h"
 #include "reticle_vs.h"
 
@@ -87,6 +88,8 @@ thread_local float t_shiftNdc = 0.0f;  // ...or by this share of half its width 
 thread_local int t_measureEye = -1;    // measure the depth under this draw (the reticle's octagon) for this eye
 thread_local bool t_scale = false;     // draw this one in the reticle's shape (ReticleScale, ReticleFlat)...
 thread_local int t_shapeEye = -1;      // ...for this eye (-1 = not an eye image: scaled, not flattened)
+thread_local int t_probeEye = -1;      // look for what this draw puts under the reticle, in this eye
+thread_local uint32_t t_probePS = 0;
 thread_local int t_posEye = -1;        // measure where this draw (the reticle's octagon) is shown in this eye
 std::atomic<float> g_sepNdc{ 0.0f }, g_convergence{ 0.0f };
 std::atomic<float> g_targetInvZ{ 0.0f };  // where the reticle goes, 1 / meters (0 = not decided yet)
@@ -251,6 +254,13 @@ std::string DrawDetail(ID3D11DeviceContext* ctx, unsigned ord, const char* kind,
     return b;
 }
 
+// Whether a comma-separated list of hex hashes ("56E63E45,...") holds this one
+bool ListHas(const std::string& list, uint32_t hash) {
+    char hex[16];
+    sprintf_s(hex, "%08X", hash);
+    return ("," + list + ",").find("," + std::string(hex) + ",") != std::string::npos;
+}
+
 // The reticle: its pixel shader, vertex count and texture (size and format) in slot 0;
 // *format = the texture's format (77 = the octagon, 87 = the centre cross)
 bool IsReticleDraw(ID3D11DeviceContext* ctx, uint32_t ps, UINT count, int* format = nullptr) {
@@ -286,6 +296,7 @@ bool OnDraw(ID3D11DeviceContext* ctx, UINT verts, const char* kind = "", UINT co
     t_measureEye = -1;
     t_scale = false;
     t_shapeEye = -1;
+    t_probeEye = -1;
     t_posEye = -1;
     ID3D11Device* dev = DeviceOf(ctx);
     if (dev == g_ownDev) return true;
@@ -382,7 +393,7 @@ bool OnDraw(ID3D11DeviceContext* ctx, UINT verts, const char* kind = "", UINT co
         t_scale = (g_cfg.reticleScale > 0.0f && g_cfg.reticleScale != 1.0f) || g_cfg.reticleFlat;
         if (t_scale) t_shapeEye = EyeOfRenderTarget(ctx);
         if (g_cfg.reticleAuto && reticleFormat == 77) t_measureEye = EyeOfRenderTarget(ctx);
-        if (g_cfg.reticleKeepInView && reticleFormat == 77) t_posEye = EyeOfRenderTarget(ctx);
+        if ((g_cfg.reticleKeepInView || g_cfg.reticleAuto) && reticleFormat == 77) t_posEye = EyeOfRenderTarget(ctx);
         if (g_cfg.reticleShiftPx != 0.0f || g_cfg.reticleDepth > 0.0f || g_cfg.reticleAuto) {
             const int eye = EyeOfRenderTarget(ctx);
             const float sign = eye == 0 ? 1.0f : -1.0f;  // right in the left eye = nearer
@@ -418,6 +429,11 @@ bool OnDraw(ID3D11DeviceContext* ctx, UINT verts, const char* kind = "", UINT co
                 }
             }
         }
+    } else if (g_cfg.reticleAuto && g_cfg.reticleDepthSource != "buffer" && vs == g_cfg.reticleVS &&
+               !ListHas(g_cfg.reticleDepthIgnorePS, ps)) {
+        // Anything else drawn into an eye (but glow sprites): what does it put under the middle of the reticle?
+        t_probeEye = EyeOfRenderTarget(ctx);
+        t_probePS = ps;
     }
     const uint32_t focus = g_cfg.hookHuntDrawsOf ? g_cfg.hookHuntDrawsOf : g_cfg.hookDetailPS;
     if (focus && ps == focus) {
@@ -470,13 +486,20 @@ void DrawShifted(ID3D11DeviceContext* ctx, F draw) {
 }
 
 void STDMETHODCALLTYPE HookDrawIndexed(ID3D11DeviceContext* ctx, UINT count, UINT start, INT base) {
-    if (OnDraw(ctx, count, "idx", count))
-        DrawShifted(ctx, [&] { OriginalFor(g_drawIndexed, ctx, kDrawIndexed)(ctx, count, start, base); });
+    if (!OnDraw(ctx, count, "idx", count)) return;
+    if (t_probeEye >= 0)
+        ReticleProbeDraw(ctx, t_probeEye, t_probePS, count,
+                         [&] { OriginalFor(g_drawIndexed, ctx, kDrawIndexed)(ctx, count, start, base); });
+    DrawShifted(ctx, [&] { OriginalFor(g_drawIndexed, ctx, kDrawIndexed)(ctx, count, start, base); });
 }
 void STDMETHODCALLTYPE HookDraw(ID3D11DeviceContext* ctx, UINT count, UINT start) {
     if (!OnDraw(ctx, count, "draw", count)) return;
-    if (t_measureEye >= 0)
+    if (t_probeEye >= 0)
+        ReticleProbeDraw(ctx, t_probeEye, t_probePS, count, [&] { OriginalFor(g_draw, ctx, kDraw)(ctx, count, start); });
+    if (t_measureEye >= 0) {
+        ReticleProbeEnd(ctx, t_measureEye);
         ReticleDepthMeasure(ctx, t_measureEye, [&] { OriginalFor(g_draw, ctx, kDraw)(ctx, count, start); });
+    }
     if (t_posEye >= 0)
         ReticlePosMeasure(ctx, t_posEye, t_shiftNdc, ShapeFor(t_posEye),
                           [&] { OriginalFor(g_draw, ctx, kDraw)(ctx, count, start); });
@@ -484,11 +507,16 @@ void STDMETHODCALLTYPE HookDraw(ID3D11DeviceContext* ctx, UINT count, UINT start
 }
 void STDMETHODCALLTYPE HookDrawIndexedInstanced(ID3D11DeviceContext* ctx, UINT count, UINT inst, UINT start, INT base,
                                                 UINT startInst) {
-    if (OnDraw(ctx, count * inst, "idxinst", count, inst))
-        OriginalFor(g_drawIndexedInstanced, ctx, kDrawIndexedInstanced)(ctx, count, inst, start, base, startInst);
+    if (!OnDraw(ctx, count * inst, "idxinst", count, inst)) return;
+    auto draw = [&] { OriginalFor(g_drawIndexedInstanced, ctx, kDrawIndexedInstanced)(ctx, count, inst, start, base, startInst); };
+    if (t_probeEye >= 0) ReticleProbeDraw(ctx, t_probeEye, t_probePS, count * inst, draw);
+    draw();
 }
 void STDMETHODCALLTYPE HookDrawInstanced(ID3D11DeviceContext* ctx, UINT count, UINT inst, UINT start, UINT startInst) {
-    if (OnDraw(ctx, count * inst, "inst", count, inst)) OriginalFor(g_drawInstanced, ctx, kDrawInstanced)(ctx, count, inst, start, startInst);
+    if (!OnDraw(ctx, count * inst, "inst", count, inst)) return;
+    auto draw = [&] { OriginalFor(g_drawInstanced, ctx, kDrawInstanced)(ctx, count, inst, start, startInst); };
+    if (t_probeEye >= 0) ReticleProbeDraw(ctx, t_probeEye, t_probePS, count * inst, draw);
+    draw();
 }
 
 template <typename Fn>
@@ -595,6 +623,7 @@ void InstallD3DHooks(ID3D11Device* dev, ID3D11DeviceContext* ctx, const StereoCo
     g_installed = true;
     g_gameDev = dev;
     ReticleDepthSetProbe(g_cfg.reticleDepthProbe.c_str());
+    ReticleProbeSetLogEvery(g_cfg.reticleProbeLogEvery);
     HookDevice(dev, ctx);
     LogPrintf("Hook: D3D11 draw hooks on the eye images' device %p (mode %d, skip reticle %d, always skipping PS %08X)",
               (void*)dev, g_cfg.hookMode, g_cfg.hookSkipReticle, g_cfg.hookSkipPS);
@@ -610,17 +639,23 @@ void UpdateReticleTarget() {
         return;
     }
     // Reversed depth: the larger value is the nearer. Both eyes see the reticle's centre.
-    float nearestDepth = 0.0f;
+    float bufferDepth = 0.0f;
     bool any = false;
     for (int eye = 0; eye < 2; eye++) {
         float lo, hi;
         unsigned samples;
         if (ReticleDepthLatest(eye, lo, hi, samples)) {
             any = true;
-            if (samples && hi > nearestDepth) nearestDepth = hi;
+            if (samples && hi > bufferDepth) bufferDepth = hi;
         }
     }
-    if (!any) return;
+    // What is drawn there, depth-writing or not (ReticleDepthSource=draws, the default): the
+    // nearer of that and the depth buffer
+    float drawnDepth = 0.0f;
+    unsigned drawnBy = 0;
+    const bool probed = g_cfg.reticleDepthSource != "buffer" && ReticleProbeLatest(drawnDepth, drawnBy);
+    if (!any && !probed) return;
+    const float nearestDepth = probed && drawnDepth > bufferDepth ? drawnDepth : bufferDepth;
     float inv = nearestDepth > 0.0f && g_cfg.reticleDepthScale > 0.0f ? nearestDepth / g_cfg.reticleDepthScale : fixedInv;
     if (g_cfg.reticleMinDepth > 0.0f && inv > 1.0f / g_cfg.reticleMinDepth) inv = 1.0f / g_cfg.reticleMinDepth;
     // Ease toward it (about 0.12 s), in 1/z so near and far changes feel alike
@@ -634,8 +669,8 @@ void UpdateReticleTarget() {
     static LARGE_INTEGER lastLog{};
     if (!lastLog.QuadPart || now.QuadPart - lastLog.QuadPart > 2 * g_freq.QuadPart) {
         lastLog = now;
-        LogPrintf("Reticle depth: target %.1f m (nearest depth under the reticle %.5f%s)", 1.0f / g_smoothInvZ,
-                  nearestDepth, nearestDepth > 0.0f ? "" : ", nothing: fallback");
+        LogPrintf("Reticle depth: target %.1f m (nearest under the reticle: drawn %.5f by %u draws, depth buffer %.5f%s)",
+                  1.0f / g_smoothInvZ, drawnDepth, drawnBy, bufferDepth, nearestDepth > 0.0f ? "" : ", nothing: fallback");
     }
 }
 
@@ -646,6 +681,7 @@ void D3DHookFrame() {
     // Rez submits the same eye images many times between frames: only intervals
     // with draws are frames
     if (g_frame.empty()) return;
+    ReticleProbeFrame();
     g_frameNo++;
     if (g_cfg.hookMode > 0 && g_cfg.hookLogEvery > 0 && g_frameNo % (unsigned)g_cfg.hookLogEvery == 0) {
         std::string s;

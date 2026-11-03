@@ -82,6 +82,11 @@ struct StereoConfig {
     int reticleAuto = 0;
     float reticleDepthScale = 0.36f;
     float reticleMinDepth = 3.0f;
+    std::string reticleDepthSource = "draws";  // draws: anything drawn there; buffer: the depth buffer only
+    // Pixel shaders whose draws don't count for "draws": Rez's glow sprites (halos around
+    // enemies and explosions, hazes, lock-on boxes) cover much more than the thing they belong to
+    std::string reticleDepthIgnorePS = "56E63E45";
+    int reticleProbeLogEvery = 0;  // testing: log what is drawn under the reticle every N frames
     std::string reticleDepthProbe;  // testing: "x,y,r" measures a box of the screen (pixels) instead
     unsigned reticleVS = 0x04688A8A;
     // ReticleScale: the reticle's size, x the game's (it draws it at a fixed pixel size, so it

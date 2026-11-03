@@ -12,7 +12,8 @@ void ReticleVSSetCode(const void* code, size_t size);
 // Its outputs as HLSL struct fields ("float4 v0 : SV_Position;" ...), the name of the position
 // field and, if there is one, the quad's texture coordinates ("i.v1.xy"). False (logged by the
 // caller) when there is no bytecode or no position output.
-bool ReticleVSFields(std::string& fields, std::string& pos, std::string& uv, std::string& error);
+bool ReticleVSFields(std::string& fields, std::string& pos, std::string& uv, std::string& error,
+                     std::string* color = nullptr);  // and its first float4 COLOR ("i.v1"), if asked
 
 // How the reticle's quads are drawn, per draw (its eye): read by our geometry shaders
 struct ID3D11Buffer;

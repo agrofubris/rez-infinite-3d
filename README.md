@@ -124,8 +124,12 @@ Parallax follows 3D Vision: `parallax = Separation × (1 − Convergence / dista
 - **Reticle depth** (`game` or `auto`): Rez draws its reticle about 440 m
   away, so a near target such as a boss and the reticle can't both be fused at
   once. `auto` places the reticle at the depth of what is under its centre,
-  read from the game's depth buffer, and eases between depths; over empty sky
-  it goes back to where the game puts it. In `rez3d.ini`, `ReticleDepth`
+  and eases between depths; over empty sky it goes back to where the game puts
+  it. Most of Rez's enemies are glowing wireframes that never write the depth
+  buffer, so the add-on draws each of the game's meshes again into a small box
+  at the reticle's middle and keeps the nearest; glow sprites don't count, as
+  their halos cover much more than what they belong to. Far enemies (Area 1's
+  fly about 200 m out) barely change it; near ones such as a boss do. In `rez3d.ini`, `ReticleDepth`
   (meters) sets the depth over empty sky instead, or a fixed depth with
   `ReticleAuto=0`. `ReticleDepthScale` calibrates the distance (raise it if
   the reticle sits in front of targets, lower it if behind) and

@@ -93,7 +93,10 @@ your controller.
 
 `SBS` and `TAB` are half side-by-side and half top-and-bottom: each eye is
 rendered at the screen's shape and squeezed into its half, and the display
-stretches it back. The `_Cross` variants only swap the eyes.
+stretches it back. The `_Cross` variants only swap the eyes. Rez only draws an
+undistorted view into an eye image of the screen's shape, so each eye costs as
+much as in the other formats; if your GPU struggles, lower render scale (0.75
+renders about the pixels the halves show).
 
 The output is borderless fullscreen at the monitor's native resolution, drawn
 inside the game's own window. Alt+Tab, focus and Alt+F4 behave like the game

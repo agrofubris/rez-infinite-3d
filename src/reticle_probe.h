@@ -8,9 +8,9 @@
 // What Rez draws under the middle of its reticle, and how near: most of Rez's enemies and
 // effects are glowing, see-through and never write the depth buffer, so the depth buffer
 // mostly holds nothing there. Instead, each game draw into an eye image (with the reticle's
-// vertex shader) is drawn once more by a pixel shader of ours, clipped to a small box at the
-// middle of the reticle (where it was last measured), which keeps the nearest depth that its
-// visible pixels reach. Read back a frame or two later (no stall).
+// vertex shader) is drawn once more by a pixel shader of ours, clipped to a box over the
+// reticle (where it was last measured), which keeps the nearest depth that its visible
+// pixels reach. Read back a frame or two later (no stall).
 
 // Before a game draw into this eye: draw() issues that draw call. ps / verts identify it (log).
 void ReticleProbeDraw(ID3D11DeviceContext* ctx, int eye, uint32_t ps, unsigned verts,
@@ -21,6 +21,9 @@ void ReticleProbeEnd(ID3D11DeviceContext* ctx, int eye);
 
 // A new frame starts (both eyes are in)
 void ReticleProbeFrame();
+
+// The box: this share of the octagon's half-size as shown (1 = the whole octagon)
+void ReticleProbeSetBox(float share);
 
 // Ignores whatever is nearer than this depth value (reversed: larger = nearer; 0 = nothing ignored)
 void ReticleProbeSetNearLimit(float depth);

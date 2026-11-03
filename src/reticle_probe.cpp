@@ -20,7 +20,7 @@ const int kSlots = 256;  // draws recorded per eye per frame
 const int kRing = 4;     // results are read this many frames later at most
 int g_logEvery = 120;
 float g_nearLimit = 0.0f;  // depth values above this (reversed: nearer) are ignored; 0 = none
-const float kBox = 0.25f;  // the box: this share of the octagon's half-size, around its middle
+float g_box = 1.0f;  // the box: this share of the octagon's half-size as shown, around its middle
 
 std::mutex g_lock;
 bool g_failed = false;
@@ -203,6 +203,11 @@ void Collect(ID3D11DeviceContext* ctx, int eye, EyeState& e) {
 
 }  // namespace
 
+void ReticleProbeSetBox(float share) {
+    std::lock_guard<std::mutex> lk(g_lock);
+    g_box = share > 0.0f ? share : 1.0f;
+}
+
 void ReticleProbeSetNearLimit(float depth) {
     std::lock_guard<std::mutex> lk(g_lock);
     g_nearLimit = depth > 0.0f ? depth : 0.0f;
@@ -244,8 +249,8 @@ void ReticleProbeDraw(ID3D11DeviceContext* ctx, int eye, uint32_t ps, unsigned v
     if (!nvp || vp.Width <= 0 || vp.Height <= 0) return;
     const float cx = vp.TopLeftX + (x + 1.0f) * 0.5f * vp.Width;
     const float cy = vp.TopLeftY + (1.0f - y) * 0.5f * vp.Height;
-    const float bx = (std::max)(2.0f, kBox * hx * 0.5f * vp.Width);
-    const float by = (std::max)(2.0f, kBox * hy * 0.5f * vp.Height);
+    const float bx = (std::max)(2.0f, g_box * hx * 0.5f * vp.Width);
+    const float by = (std::max)(2.0f, g_box * hy * 0.5f * vp.Height);
     const D3D11_RECT box{ (LONG)floorf(cx - bx), (LONG)floorf(cy - by), (LONG)ceilf(cx + bx), (LONG)ceilf(cy + by) };
 
     if (!e.cleared) {

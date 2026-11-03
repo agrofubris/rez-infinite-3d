@@ -126,9 +126,10 @@ Parallax follows 3D Vision: `parallax = Separation × (1 − Convergence / dista
   once. `auto` places the reticle at the depth of what is under its centre,
   and eases between depths; over empty sky it goes back to where the game puts
   it. Most of Rez's enemies are glowing wireframes that never write the depth
-  buffer, so the add-on draws each of the game's meshes again into a small box
-  at the reticle's middle and keeps the nearest; glow sprites don't count, as
-  their halos cover much more than what they belong to. Far enemies (Area 1's
+  buffer, so the add-on draws each of the game's meshes again, clipped to the
+  reticle's octagon (roughly where Rez locks on), and keeps the nearest; glow
+  sprites don't count, as their halos cover much more than what they belong
+  to. Far enemies (Area 1's
   fly about 200 m out) barely change it; near ones such as a boss do. It takes
   the median of the last few frames, so shots crossing the reticle don't shake
   it, and ignores anything nearer than `ReticleIgnoreNearer` (20 m: the avatar

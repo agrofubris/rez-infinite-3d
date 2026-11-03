@@ -629,6 +629,8 @@ void InstallD3DHooks(ID3D11Device* dev, ID3D11DeviceContext* ctx, const StereoCo
     ReticleDepthSetProbe(g_cfg.reticleDepthProbe.c_str());
     ReticleProbeSetLogEvery(g_cfg.reticleProbeLogEvery);
     ReticleProbeSetNearLimit(NearLimit());
+    // Over the octagon at the game's own size, the area Rez locks onto, however large we draw it
+    ReticleProbeSetBox(g_cfg.reticleDepthBox / (g_cfg.reticleScale > 0.0f ? g_cfg.reticleScale : 1.0f));
     HookDevice(dev, ctx);
     LogPrintf("Hook: D3D11 draw hooks on the eye images' device %p (mode %d, skip reticle %d, always skipping PS %08X)",
               (void*)dev, g_cfg.hookMode, g_cfg.hookSkipReticle, g_cfg.hookSkipPS);

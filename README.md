@@ -129,12 +129,13 @@ Parallax follows 3D Vision: `parallax = Separation × (1 − Convergence / dista
   buffer, so the add-on draws each of the game's meshes again into a small box
   at the reticle's middle and keeps the nearest; glow sprites don't count, as
   their halos cover much more than what they belong to. Far enemies (Area 1's
-  fly about 200 m out) barely change it; near ones such as a boss do. In `rez3d.ini`, `ReticleDepth`
-  (meters) sets the depth over empty sky instead, or a fixed depth with
-  `ReticleAuto=0`. `ReticleDepthScale` calibrates the distance (raise it if
-  the reticle sits in front of targets, lower it if behind) and
-  `ReticleMinDepth` keeps it from coming nearer than that. Rez only, not
-  Area X.
+  fly about 200 m out) barely change it; near ones such as a boss do. It takes
+  the median of the last few frames, so shots crossing the reticle don't shake
+  it, and ignores anything nearer than `ReticleIgnoreNearer` (20 m: the avatar
+  and the floor just below it). In `rez3d.ini`, `ReticleDepth` (meters) sets
+  the depth over empty sky instead, or a fixed depth with `ReticleAuto=0`.
+  `ReticleDepthScale` calibrates the distance (raise it if the reticle sits in
+  front of targets, lower it if behind). Rez only, not Area X.
 
 Why VR Rez feels flat: at a 6.5 cm eye distance nearly everything 19 m and
 farther away is effectively at infinity. Here the virtual eye distance scales
@@ -289,7 +290,7 @@ OpenVR folder. The launcher covers the common ones. Others:
 | `LensShift`, `CameraBack`, `CameraUp` | framing and viewpoint (see Camera) |
 | `FollowAim`, `FollowSpeed`, `RightStickLook` | view follows the reticle; right stick turns the view (see Camera) |
 | `Tracking` | `mouse` = experimental mouse head-look |
-| `ReticleAuto`, `ReticleDepth`, `ReticleDepthScale`, `ReticleMinDepth` | reticle depth (see Depth) |
+| `ReticleAuto`, `ReticleDepth`, `ReticleDepthScale`, `ReticleIgnoreNearer` | reticle depth (see Depth) |
 | `ReticleScale`, `ReticleFlat` | reticle size and shape (see Image quality) |
 | `ReticleKeepInView` | the aim stick stops the reticle at the picture's edges (see Camera) |
 | `GpuComposite` | 0 = slower CPU fallback |

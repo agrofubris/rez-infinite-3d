@@ -78,10 +78,11 @@ struct StereoConfig {
     // under its centre (its vertex shader is ReticleVS). Rez's depth is reversed: distance =
     // ReticleDepthScale / depth (0.36 from the avatar: depth 0.0186-0.0196 at about 19 m).
     // With nothing under it (sky), it goes to ReticleDepth, or where the game puts it if 0.
-    // Never nearer than ReticleMinDepth meters.
+    // Whatever is nearer than ReticleIgnoreNearer meters (the avatar, the floor just below it,
+    // the shots leaving it) is ignored; the median of the last frames rides over shots crossing it.
     int reticleAuto = 0;
     float reticleDepthScale = 0.36f;
-    float reticleMinDepth = 3.0f;
+    float reticleIgnoreNearer = 20.0f;
     std::string reticleDepthSource = "draws";  // draws: anything drawn there; buffer: the depth buffer only
     // Pixel shaders whose draws don't count for "draws": Rez's glow sprites (halos around
     // enemies and explosions, hazes, lock-on boxes) cover much more than the thing they belong to

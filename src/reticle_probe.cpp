@@ -19,6 +19,7 @@ namespace {
 const int kSlots = 256;  // draws recorded per eye per frame
 const int kRing = 4;     // results are read this many frames later at most
 int g_logEvery = 120;
+float g_nearLimit = 0.0f;  // depth values above this (reversed: nearer) are ignored; 0 = none
 const float kBox = 0.25f;  // the box: this share of the octagon's half-size, around its middle
 
 std::mutex g_lock;
@@ -72,9 +73,10 @@ bool BuildShaders(ID3D11Device* dev) {
             "};\n"
             "Texture2D tex : register(t0);\n"
             "SamplerState smp : register(s0);\n"
-            "cbuffer Probe : register(b13) { uint slot; uint3 pad; };\n"
+            "cbuffer Probe : register(b13) { uint slot; float nearLimit; uint2 pad; };\n"
             "RWStructuredBuffer<uint> result : register(u0);\n"
             "void main(In i) {\n"
+            "    if (nearLimit > 0 && i." + pos + ".z > nearLimit) return;\n"  // too near to aim at (reversed depth)
             "    float4 c = " + (color.empty() ? std::string("float4(1, 1, 1, 1)") : color) + ";\n" +
             (textured && !uv.empty() ? "    c *= tex.Sample(smp, " + uv + ");\n" : std::string()) +
             "    float seen = max(max(c.r, c.g), c.b) * c.a;\n"
@@ -201,6 +203,11 @@ void Collect(ID3D11DeviceContext* ctx, int eye, EyeState& e) {
 
 }  // namespace
 
+void ReticleProbeSetNearLimit(float depth) {
+    std::lock_guard<std::mutex> lk(g_lock);
+    g_nearLimit = depth > 0.0f ? depth : 0.0f;
+}
+
 void ReticleProbeSetLogEvery(int results) {
     std::lock_guard<std::mutex> lk(g_lock);
     g_logEvery = results > 0 ? results : 120;
@@ -250,7 +257,8 @@ void ReticleProbeDraw(ID3D11DeviceContext* ctx, int eye, uint32_t ps, unsigned v
     e.frame[slot] = { ps, verts };
     D3D11_MAPPED_SUBRESOURCE m{};
     if (FAILED(ctx->Map(g_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return;
-    const UINT cbData[4] = { (UINT)slot, 0, 0, 0 };
+    UINT cbData[4] = { (UINT)slot, 0, 0, 0 };
+    memcpy(&cbData[1], &g_nearLimit, 4);
     memcpy(m.pData, cbData, sizeof(cbData));
     ctx->Unmap(g_cb, 0);
 

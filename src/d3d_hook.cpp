@@ -1,10 +1,12 @@
 #include "d3d_hook.h"
 
 #include <windows.h>
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -618,17 +620,29 @@ void InstallD3DHooksEarly(const StereoConfig& cfg) {
     LogPrintf("Hook: early hooks from a scratch device (mode %d)", cfg.hookMode);
 }
 
+float NearLimit();
+
 void InstallD3DHooks(ID3D11Device* dev, ID3D11DeviceContext* ctx, const StereoConfig& cfg) {
     if (g_installed || !dev || !ctx || !HooksWanted(cfg) || !StartMinHook(cfg)) return;
     g_installed = true;
     g_gameDev = dev;
     ReticleDepthSetProbe(g_cfg.reticleDepthProbe.c_str());
     ReticleProbeSetLogEvery(g_cfg.reticleProbeLogEvery);
+    ReticleProbeSetNearLimit(NearLimit());
     HookDevice(dev, ctx);
     LogPrintf("Hook: D3D11 draw hooks on the eye images' device %p (mode %d, skip reticle %d, always skipping PS %08X)",
               (void*)dev, g_cfg.hookMode, g_cfg.hookSkipReticle, g_cfg.hookSkipPS);
 }
 
+
+const int kRecent = 7;  // frames the reticle depth takes the median of
+
+// The depth value of ReticleIgnoreNearer: anything nearer (the avatar, the floor just below it, the
+// shots leaving it) is not something to aim at, so auto ignores it (reversed: larger = nearer)
+float NearLimit() {
+    return g_cfg.reticleIgnoreNearer > 0.0f && g_cfg.reticleDepthScale > 0.0f ? g_cfg.reticleDepthScale / g_cfg.reticleIgnoreNearer
+                                                                           : 0.0f;
+}
 
 // Where the reticle goes this frame, in 1 / meters
 void UpdateReticleTarget() {
@@ -655,12 +669,28 @@ void UpdateReticleTarget() {
     unsigned drawnBy = 0;
     const bool probed = g_cfg.reticleDepthSource != "buffer" && ReticleProbeLatest(drawnDepth, drawnBy);
     if (!any && !probed) return;
-    const float nearestDepth = probed && drawnDepth > bufferDepth ? drawnDepth : bufferDepth;
-    float inv = nearestDepth > 0.0f && g_cfg.reticleDepthScale > 0.0f ? nearestDepth / g_cfg.reticleDepthScale : fixedInv;
-    if (g_cfg.reticleMinDepth > 0.0f && inv > 1.0f / g_cfg.reticleMinDepth) inv = 1.0f / g_cfg.reticleMinDepth;
-    // Ease toward it (about 0.12 s), in 1/z so near and far changes feel alike
+    const float nearLimit = NearLimit();
+    if (nearLimit > 0.0f && bufferDepth > nearLimit) bufferDepth = 0.0f;  // too near: can't see past it
+    const float measured = probed && drawnDepth > bufferDepth ? drawnDepth : bufferDepth;
+    // The median of the last few frames (about 12 ms apart): shots and sparks crossing the
+    // middle of the reticle for a frame or two don't move it; a target that stays does
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
+    static float recent[kRecent] = {};
+    static int recentNext = 0, recentCount = 0;
+    static LARGE_INTEGER lastSample{};
+    if (!lastSample.QuadPart || now.QuadPart - lastSample.QuadPart >= g_freq.QuadPart * 12 / 1000) {
+        lastSample = now;
+        recent[recentNext] = measured;
+        recentNext = (recentNext + 1) % kRecent;
+        if (recentCount < kRecent) recentCount++;
+    }
+    float sorted[kRecent];
+    memcpy(sorted, recent, sizeof(sorted));
+    std::sort(sorted, sorted + recentCount);
+    const float nearestDepth = recentCount ? sorted[recentCount / 2] : measured;
+    const float inv = nearestDepth > 0.0f && g_cfg.reticleDepthScale > 0.0f ? nearestDepth / g_cfg.reticleDepthScale : fixedInv;
+    // Ease toward it (about 0.12 s), in 1/z so near and far changes feel alike
     const float dt = g_lastTarget.QuadPart ? (float)((double)(now.QuadPart - g_lastTarget.QuadPart) / (double)g_freq.QuadPart) : 1.0f;
     g_lastTarget = now;
     const float k = 1.0f - expf(-(dt < 0.5f ? dt : 0.5f) / 0.12f);

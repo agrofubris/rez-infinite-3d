@@ -22,6 +22,9 @@ void ReticleProbeEnd(ID3D11DeviceContext* ctx, int eye);
 // A new frame starts (both eyes are in)
 void ReticleProbeFrame();
 
+// Ignores whatever is nearer than this depth value (reversed: larger = nearer; 0 = nothing ignored)
+void ReticleProbeSetNearLimit(float depth);
+
 // Testing: log what reached the middle every this many results per eye (default 120)
 void ReticleProbeSetLogEvery(int results);
 

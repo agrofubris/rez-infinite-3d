@@ -91,6 +91,10 @@ struct StereoConfig {
     // picture, so the reticle can't leave the view (Rez lets it go about 50 deg across and
     // 43 deg up/down, wider than most fields of view). The runtime measures where it is.
     int reticleKeepInView = 1;
+    // ReticleFlat=1: draw the reticle facing the view, as it would look in the middle of the
+    // picture, wherever it is: a flat picture of a wide view stretches whatever is off-centre
+    // (VR headsets' lenses undo that). Same centre and depth; ReticleScale still applies.
+    int reticleFlat = 1;
     unsigned hookHuntTexOf = 0;     // HookHuntTexOf: hunt over the textures this pixel shader samples, one at a time
     // Follow aim: the virtual head turns toward where the left stick has moved the
     // reticle, like the camera of the non-VR versions. 0 = off.

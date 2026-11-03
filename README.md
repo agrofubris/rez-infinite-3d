@@ -159,6 +159,13 @@ Each eye only gets every other row, and Rez is made of thin lines.
 - **Reticle size** (default 1): draws Rez's reticle bigger or smaller, around
   its own centre, so it still aims at the same spot. Try 2 at 4K or at render
   scale 1.5. Rez only, not Area X.
+- **Reticle shape** (`flat` by default, or `game`): in VR mode Rez's reticle is
+  a flat octagon in the 3D scene. A flat picture of a wide view stretches
+  whatever is off-centre (a headset's lenses undo that), so as drawn by the
+  game it grows and shears toward the edges and corners, up to about 4 times
+  its size at a 110° field of view. `flat` draws it facing you, the same shape
+  and size anywhere, at the size it has in the middle of the view. Its position
+  and depth are the same either way. Rez only, not Area X.
 - Keep **Rez's own VR supersampling at 100 %** (in the game's VR settings) and
   use render scale instead: the two multiply, and at 250 % a 4K display asks
   the GPU for 6.25 times the pixels per eye. `REZ\rez3d.log` says so
@@ -279,7 +286,7 @@ OpenVR folder. The launcher covers the common ones. Others:
 | `FollowAim`, `FollowSpeed`, `RightStickLook` | view follows the reticle; right stick turns the view (see Camera) |
 | `Tracking` | `mouse` = experimental mouse head-look |
 | `ReticleAuto`, `ReticleDepth`, `ReticleDepthScale`, `ReticleMinDepth` | reticle depth (see Depth) |
-| `ReticleScale` | reticle size (see Image quality) |
+| `ReticleScale`, `ReticleFlat` | reticle size and shape (see Image quality) |
 | `ReticleKeepInView` | the aim stick stops the reticle at the picture's edges (see Camera) |
 | `GpuComposite` | 0 = slower CPU fallback |
 | `LogFrameCalls`, `DumpFrames`, `DumpAfter`, `DumpEvery`, `DumpAfterSec`, `DumpEverySec` | debugging (frame dumps by frame count or by seconds) |

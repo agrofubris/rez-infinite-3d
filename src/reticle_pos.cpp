@@ -30,7 +30,7 @@ struct EyeState {
     ID3D11UnorderedAccessView* uav = nullptr;
     ID3D11Buffer* staging[kRing] = {};
     LARGE_INTEGER issued[kRing] = {};
-    float shift[kRing] = {}, scale[kRing] = {};
+    float shift[kRing] = {};
     bool pending[kRing] = {};
     int next = 0;
     bool have = false;
@@ -61,9 +61,10 @@ ID3DBlob* Compile(const std::string& src, const char* target) {
     return SUCCEEDED(hr) ? code : nullptr;
 }
 
-// The geometry shader finds the quad's centre (the middle of a triangle's longest side, the
-// quad's diagonal) and half-size in NDC, and hands them to a small triangle in the middle
-// of the view, so they reach our pixel shader wherever the quad is, even off screen.
+// The geometry shader redraws the quad as it is shown (RsReshape: flat and/or scaled), finds
+// its centre (the middle of a triangle's longest side, the quad's diagonal) and half-size in
+// NDC, and hands them to a small triangle in the middle of the view, so they reach our pixel
+// shader wherever the quad is, even off screen.
 bool BuildShaders(ID3D11Device* dev) {
     std::string fields, pos, uv, error;
     if (!ReticleVSFields(fields, pos, uv, error)) {
@@ -77,13 +78,17 @@ bool BuildShaders(ID3D11Device* dev) {
         "    float4 pos : SV_Position;\n"
         "    nointerpolation float4 c : TEXCOORD0;\n"
         "    nointerpolation float2 h : TEXCOORD1;\n"
-        "};\n"
+        "};\n" +
+        std::string(ReticleShapeHLSL()) +
         "[maxvertexcount(3)]\n"
         "void main(triangle V i[3], inout TriangleStream<O> o) {\n"
         "    float4 p0 = i[0].POS, p1 = i[1].POS, p2 = i[2].POS;\n"
+        "    float2 t0 = " + ReticleUV(uv, "i[0]") + ", t1 = " + ReticleUV(uv, "i[1]") +
+        ", t2 = " + ReticleUV(uv, "i[2]") +
+        ";\n"
+        "    RsReshape(p0, p1, p2, t0, t1, t2);\n"
         "    float2 s0 = p0.xy / p0.w, s1 = p1.xy / p1.w, s2 = p2.xy / p2.w;\n"
-        "    float d01 = dot(s1 - s0, s1 - s0), d12 = dot(s2 - s1, s2 - s1), d20 = dot(s0 - s2, s0 - s2);\n"
-        "    float4 c = 0.5 * ((d01 >= d12 && d01 >= d20) ? p0 + p1 : (d12 >= d20) ? p1 + p2 : p2 + p0);\n"
+        "    float4 c = RsCenter(p0, p1, p2, t0, t1, t2);\n"
         "    float2 cn = c.xy / c.w;\n"
         "    O v;\n"
         "    v.c = float4(cn, c.w, 1);\n"
@@ -193,8 +198,8 @@ void Collect(ID3D11DeviceContext* ctx, EyeState& e) {
         e.lagCount++;
         e.x = v[0] + e.shift[i];
         e.y = v[1];
-        e.hx = v[2] * e.scale[i];
-        e.hy = v[3] * e.scale[i];
+        e.hx = v[2];
+        e.hy = v[3];
         e.drawn = e.issued[i];
         e.have = true;
         g_sequence++;
@@ -210,7 +215,14 @@ void ReticlePosSetProjection(float tanH, float tanV, float shiftV) {
     g_shiftV = shiftV;
 }
 
-void ReticlePosMeasure(ID3D11DeviceContext* ctx, int eye, float shiftNdc, float scale,
+void ReticlePosProjection(float& tanH, float& tanV, float& shiftV) {
+    std::lock_guard<std::mutex> lk(g_lock);
+    tanH = g_tanH;
+    tanV = g_tanV;
+    shiftV = g_shiftV;
+}
+
+void ReticlePosMeasure(ID3D11DeviceContext* ctx, int eye, float shiftNdc, const ReticleShape& shape,
                        const std::function<void()>& draw) {
     if (eye < 0 || eye > 1) return;
     std::lock_guard<std::mutex> lk(g_lock);
@@ -222,6 +234,8 @@ void ReticlePosMeasure(ID3D11DeviceContext* ctx, int eye, float shiftNdc, float 
     if (!ok) return;
     EyeState& e = g_eye[eye];
     Collect(ctx, e);
+    ID3D11Buffer* cb = nullptr;
+    if (!ReticleShapeBind(ctx, shape, &cb)) return;
 
     // Save what we change
     ID3D11GeometryShader* gs = nullptr;
@@ -257,6 +271,7 @@ void ReticlePosMeasure(ID3D11DeviceContext* ctx, int eye, float shiftNdc, float 
     ctx->OMSetDepthStencilState(dss, stencilRef);
     ctx->PSSetShader(ps, psInst, psN);
     ctx->GSSetShader(gs, gsInst, gsN);
+    ReticleShapeRestore(ctx, cb);
     for (auto* r : rtvs)
         if (r) r->Release();
     if (dsv) dsv->Release();
@@ -272,7 +287,6 @@ void ReticlePosMeasure(ID3D11DeviceContext* ctx, int eye, float shiftNdc, float 
     ctx->CopyResource(e.staging[e.next], e.result);
     QueryPerformanceCounter(&e.issued[e.next]);
     e.shift[e.next] = shiftNdc;
-    e.scale[e.next] = scale;
     e.pending[e.next] = true;
     e.next = (e.next + 1) % kRing;
     if (++e.measured % 240 == 1 && e.have)

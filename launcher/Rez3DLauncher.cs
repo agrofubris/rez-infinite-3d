@@ -166,7 +166,7 @@ namespace Rez3D
             iniPaths.Add(Path.Combine(root, @"REZ\rez3d.ini"));
             var ax = Path.Combine(root, @"AX\Engine\Binaries\ThirdParty\OpenVR\OpenVRv1_0_2\Win64\rez3d.ini");
             if (File.Exists(ax)) iniPaths.Add(ax);
-            ClientSize = new Size(1280, 866);
+            ClientSize = new Size(1280, 892);
             items.Clear();
             selected = 0;
             BuildItems();
@@ -373,6 +373,8 @@ namespace Rez3D
             Section("reticle", 1);
             Choice("depth", "ReticleAuto", new[] { "0", "1" }, new[] { "game", "auto" }, "0",
                    "auto puts the reticle at the depth of what is under it, so near targets and the reticle fuse");
+            Choice("shape", "ReticleFlat", new[] { "1", "0" }, new[] { "flat", "game" }, "1",
+                   "flat: the same shape and size anywhere. game: stretched toward the edges, as a wide view draws it");
             Num("size", "ReticleScale", 0.5, 4.0, 0.25, 1, 2, "x",
                 "draws the reticle bigger or smaller, in place. 1 = the game's size; try 2 at 4k or render scale 1.5");
             Choice("keep in view", "ReticleKeepInView", new[] { "1", "0" }, new[] { "on", "off" }, "1",

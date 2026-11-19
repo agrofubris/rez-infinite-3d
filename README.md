@@ -111,7 +111,8 @@ Parallax follows 3D Vision: `parallax = Separation × (1 − Convergence / dista
   from the monitor; `REZ\rez3d.log` shows it (`Screen width: … mm`) and what
   100 % means on it. If depth looks far too strong or too weak, or the size is
   wrong (some monitors report nonsense), set `ScreenWidthMM` in `rez3d.ini` to
-  the visible width of your screen in millimetres. TVs and projectors often need it.
+  the visible width of your screen in millimetres. Large TVs and projectors are
+  read too (since 0.4.1), but some report no size or a wrong one and need it.
 - **Convergence** (meters): the distance that sits on the screen plane. The
   avatar flies about 19 m ahead and the levels stretch hundreds of meters
   beyond. The default 20 puts the avatar on the screen and everything else

@@ -20,14 +20,22 @@ const int kSlots = 256;  // draws recorded per eye per frame
 const int kRing = 4;     // results are read this many frames later at most
 int g_logEvery = 120;
 float g_nearLimit = 0.0f;  // depth values above this (reversed: nearer) are ignored; 0 = none
-float g_box = 1.0f;  // the box: this share of the octagon's half-size as shown, around its middle
+float g_octagonScale = 1.0f;  // share of the unscaled reticle size to probe
 
 std::mutex g_lock;
 bool g_failed = false;
 ID3D11PixelShader* g_ps[2] = {};  // without, with a texture in slot 0
 ID3D11RasterizerState* g_raster = nullptr;
 ID3D11DepthStencilState* g_noDepth = nullptr;
-ID3D11Buffer* g_cb = nullptr;  // the draw's slot (register b13)
+ID3D11Buffer* g_cb = nullptr;  // probe constants (register b13)
+
+struct ProbeConstants {
+    UINT slot;
+    float nearLimit;
+    UINT pad[2];
+    float center[2], invHalfSize[2];
+};
+static_assert(sizeof(ProbeConstants) == 32, "HLSL probe constant buffer layout");
 
 struct Slot {
     uint32_t ps;
@@ -73,10 +81,15 @@ bool BuildShaders(ID3D11Device* dev) {
             "};\n"
             "Texture2D tex : register(t0);\n"
             "SamplerState smp : register(s0);\n"
-            "cbuffer Probe : register(b13) { uint slot; float nearLimit; uint2 pad; };\n"
+            "cbuffer Probe : register(b13) {\n"
+            "    uint slot; float nearLimit; uint2 pad;\n"
+            "    float2 center; float2 invHalfSize;\n"
+            "};\n"
             "RWStructuredBuffer<uint> result : register(u0);\n"
             "void main(In i) {\n"
             "    if (nearLimit > 0 && i." + pos + ".z > nearLimit) return;\n"  // too near to aim at (reversed depth)
+            "    float2 p = abs((i." + pos + ".xy - center) * invHalfSize);\n"
+            "    if (max(p.x, p.y) > 1.0 || p.x + p.y > 1.41421356) return;\n"  // regular octagon in normalized coordinates
             "    float4 c = " + (color.empty() ? std::string("float4(1, 1, 1, 1)") : color) + ";\n" +
             (textured && !uv.empty() ? "    c *= tex.Sample(smp, " + uv + ");\n" : std::string()) +
             "    float seen = max(max(c.r, c.g), c.b) * c.a;\n"
@@ -112,7 +125,7 @@ bool BuildShaders(ID3D11Device* dev) {
     dd.DepthEnable = FALSE;
     dd.DepthFunc = D3D11_COMPARISON_ALWAYS;
     D3D11_BUFFER_DESC cb{};
-    cb.ByteWidth = 16;
+    cb.ByteWidth = sizeof(ProbeConstants);
     cb.Usage = D3D11_USAGE_DYNAMIC;
     cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     cb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -203,9 +216,9 @@ void Collect(ID3D11DeviceContext* ctx, int eye, EyeState& e) {
 
 }  // namespace
 
-void ReticleProbeSetBox(float share) {
+void ReticleProbeSetOctagonScale(float share) {
     std::lock_guard<std::mutex> lk(g_lock);
-    g_box = share > 0.0f ? share : 1.0f;
+    g_octagonScale = share > 0.0f ? share : 1.0f;
 }
 
 void ReticleProbeSetNearLimit(float depth) {
@@ -242,15 +255,15 @@ void ReticleProbeDraw(ID3D11DeviceContext* ctx, int eye, uint32_t ps, unsigned v
     if (dev) dev->Release();
     if (!ok) return;
 
-    // The box, in this draw's viewport pixels
+    // Scissor to the octagon's bounds in this draw's viewport. The shader masks its corners.
     D3D11_VIEWPORT vp{};
     UINT nvp = 1;
     ctx->RSGetViewports(&nvp, &vp);
     if (!nvp || vp.Width <= 0 || vp.Height <= 0) return;
     const float cx = vp.TopLeftX + (x + 1.0f) * 0.5f * vp.Width;
     const float cy = vp.TopLeftY + (1.0f - y) * 0.5f * vp.Height;
-    const float bx = (std::max)(2.0f, g_box * hx * 0.5f * vp.Width);
-    const float by = (std::max)(2.0f, g_box * hy * 0.5f * vp.Height);
+    const float bx = (std::max)(2.0f, g_octagonScale * hx * 0.5f * vp.Width);
+    const float by = (std::max)(2.0f, g_octagonScale * hy * 0.5f * vp.Height);
     const D3D11_RECT box{ (LONG)floorf(cx - bx), (LONG)floorf(cy - by), (LONG)ceilf(cx + bx), (LONG)ceilf(cy + by) };
 
     if (!e.cleared) {
@@ -262,9 +275,8 @@ void ReticleProbeDraw(ID3D11DeviceContext* ctx, int eye, uint32_t ps, unsigned v
     e.frame[slot] = { ps, verts };
     D3D11_MAPPED_SUBRESOURCE m{};
     if (FAILED(ctx->Map(g_cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) return;
-    UINT cbData[4] = { (UINT)slot, 0, 0, 0 };
-    memcpy(&cbData[1], &g_nearLimit, 4);
-    memcpy(m.pData, cbData, sizeof(cbData));
+    const ProbeConstants constants{ (UINT)slot, g_nearLimit, {}, {cx, cy}, {1.0f / bx, 1.0f / by} };
+    memcpy(m.pData, &constants, sizeof(constants));
     ctx->Unmap(g_cb, 0);
 
     // Save what we change

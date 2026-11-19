@@ -319,12 +319,13 @@ int GetMonitorWidthMM(const StereoConfig& cfg) {
     const bool dtd = (edid[54] | edid[55]) != 0;
     const int dtdMM = !dtd ? 0 : rotated ? (edid[67] | ((edid[68] & 0x0F) << 8)) : (edid[66] | ((edid[68] & 0xF0) << 4));
     const int cmMM = (rotated ? edid[22] : edid[21]) * 10;
-    // Believable: at least 150 mm and 1.5-12.5 pixels per mm (about 40-320 dpi)
+    // Very small widths can be bogus (they make the parallax too strong).
+    // Don't reject low pixel densities: a 65-inch 1080p TV is only 1.33 px/mm,
+    // and a projector can be even lower.
     auto plausible = [px](int mm) {
         if (mm < 150) return false;
         if (px <= 0) return true;
-        const float perMM = (float)px / (float)mm;
-        return perMM >= 1.5f && perMM <= 12.5f;
+        return (float)px / (float)mm <= 12.5f;
     };
     int mm = 0;
     const char* used = "none believable";
@@ -806,23 +807,6 @@ bool Presenter::CreateDeviceAndSwapChain() {
         m_gpuDisabled = true;
     }
 
-    D3D11_TEXTURE2D_DESC td{};
-    td.Width = m_outW;
-    td.Height = m_outH;
-    td.MipLevels = 1;
-    td.ArraySize = 1;
-    td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    td.SampleDesc.Count = 1;
-    td.Usage = D3D11_USAGE_DEFAULT;
-    td.BindFlags = 0;
-    td.CPUAccessFlags = 0;
-    hr = m_device->CreateTexture2D(&td, nullptr, &m_dynamicTex);
-    if (FAILED(hr)) {
-        LogPrintf("Presenter: CreateTexture2D failed hr=0x%08lX", (unsigned long)hr);
-        return false;
-    }
-    m_dynamicW = m_outW;
-    m_dynamicH = m_outH;
     LogPrintf("Presenter: D3D11 device and swapchain ready");
     return true;
 }
@@ -1450,6 +1434,7 @@ void Presenter::ThreadMain() {
                 }
             }
         }
+        if (gpuSlot >= 0 || haveCpu) MatchWindowSize();
         if (gpuSlot >= 0) {
             PresentGpu(gpuSlot, gen, handle, gpuBounds);
             std::lock_guard<std::mutex> lk(m_mtx);
@@ -1523,8 +1508,7 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
     const bool leiaMode = m_format == FMT_LEIA_SR;
     HWND leiaWindow = m_hwnd;
     if (leiaMode && m_hwnd && m_cfg.leiaWindow != "own") leiaWindow = GetAncestor(m_hwnd, GA_ROOT);
-    MatchWindowSize();
-    if (!m_rtv) return;
+    if (!m_rtv) return;  // the back buffer's view couldn't be made after a resize: skip this frame
     if (leiaMode) LogLeiaGeometry(leiaWindow);
     const bool weave = leiaMode && m_leia.Ready(m_device, m_context, leiaWindow, m_outW, m_outH);
     const int fmt = leiaMode ? FMT_SBS : m_format;
@@ -1548,15 +1532,15 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
     p.outW = compW;
     p.outH = compH;
 
-    {
+    auto setFilter = [&] {
         // Output pixels covered by one eye, and eye texels per output pixel
         const bool sbs = fmt == FMT_SBS || fmt == FMT_SBS_CROSS;
         const bool tab = fmt == FMT_TAB || fmt == FMT_TAB_CROSS;
         const bool interlaced = fmt == FMT_INTERLACED || fmt == FMT_INTERLACED_REVERSED;
         const bool checker = fmt == FMT_CHECKERBOARD;
-        const float regionW = (float)(sbs ? compW / 2 : compW);
-        const float regionH = (float)(tab ? compH / 2 : compH);
-        const float texPerOutX = 0.5f * tw * fabsf(bounds[0].uMax - bounds[0].uMin) / regionW;
+        const float regionW = (float)(sbs ? p.outW / 2 : p.outW);
+        const float regionH = (float)(tab ? p.outH / 2 : p.outH);
+        const float texPerOutX = tw * fabsf(bounds[0].uMax - bounds[0].uMin) / regionW;
         const float texPerOutY = th * fabsf(bounds[0].vMax - bounds[0].vMin) / regionH;
         const float decX = checker ? 1.41f : 1.0f;
         const float decY = interlaced ? 2.0f : (checker ? 1.41f : 1.0f);
@@ -1578,7 +1562,8 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
         p.filt[1] = hy / regionH;
         p.filt[2] = (float)taps(hx, texPerOutX);
         p.filt[3] = (float)taps(hy, texPerOutY);
-    }
+    };
+    setFilter();
     // Crosstalk cancellation is for glasses; an SR panel handles its own
     p.color[0] = leiaMode ? 0.0f : m_crosstalk.load();
     p.color[1] = leiaMode ? 0.0f : m_cfg.crosstalkLift;
@@ -1640,6 +1625,7 @@ void Presenter::PresentGpu(int slot, uint64_t gen, HANDLE handle, const EyeBound
             // A failed weave must not blank the screen: plain side-by-side instead
             p.outW = m_outW;
             p.outH = m_outH;
+            setFilter();
             composite(m_rtv, m_outW, m_outH);
         }
     }
@@ -1868,16 +1854,6 @@ void Presenter::MatchWindowSize() {
         LogPrintf("Presenter: output %dx%d -> %dx%d, the size of the window it is shown in", m_outW, m_outH, w, h);
         m_outW = w;
         m_outH = h;
-        // The CPU fallback uploads a whole frame into this texture
-        D3D11_TEXTURE2D_DESC td{};
-        if (m_dynamicTex) m_dynamicTex->GetDesc(&td);
-        td.Width = (UINT)w;
-        td.Height = (UINT)h;
-        SafeRelease(m_dynamicTex);
-        if (SUCCEEDED(m_device->CreateTexture2D(&td, nullptr, &m_dynamicTex))) {
-            m_dynamicW = (UINT)w;
-            m_dynamicH = (UINT)h;
-        }
     }
     ID3D11Texture2D* backBuffer = nullptr;
     if (SUCCEEDED(AcquireBackBuffer(&backBuffer))) {
@@ -2043,7 +2019,7 @@ void Presenter::CleanupGraphics() {
     SafeRelease(m_ps);
     SafeRelease(m_vs);
     if (m_swapChain) { m_swapChain->SetFullscreenState(FALSE, nullptr); m_swapChain->Release(); m_swapChain = nullptr; }
-    if (m_dynamicTex) { m_dynamicTex->Release(); m_dynamicTex = nullptr; }
+    SafeRelease(m_cpuUpload);
     if (m_context) { m_context->Release(); m_context = nullptr; }
     if (m_device) { m_device->Release(); m_device = nullptr; }
     if (m_hwnd) { DestroyWindow(m_hwnd); m_hwnd = nullptr; }
@@ -2211,7 +2187,26 @@ void Presenter::SaveDump(const uint8_t* data, int w, int h, const char* kind) {
 }
 
 void Presenter::PresentLatest() {
-    if (!m_device || (!m_swapChain && !m_offscreen) || !m_dynamicTex) return;
+    if (!m_device || (!m_swapChain && !m_offscreen)) return;
+    // Allocate only for CPU compositing, at the current back-buffer size.
+    if (!m_cpuUpload || m_cpuUploadW != m_outW || m_cpuUploadH != m_outH) {
+        SafeRelease(m_cpuUpload);
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = m_outW;
+        td.Height = m_outH;
+        td.MipLevels = 1;
+        td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_DEFAULT;
+        HRESULT hr = m_device->CreateTexture2D(&td, nullptr, &m_cpuUpload);
+        if (FAILED(hr)) {
+            LogPrintf("Presenter: CPU upload texture %dx%d failed hr=0x%08lX", m_outW, m_outH, (unsigned long)hr);
+            return;
+        }
+        m_cpuUploadW = m_outW;
+        m_cpuUploadH = m_outH;
+    }
 
     if (m_localEye[0].size() == m_localEye[1].size() && !m_localEye[0].empty()) {
         static unsigned diffCount = 0;
@@ -2242,13 +2237,13 @@ void Presenter::PresentLatest() {
         SaveDump(m_cpuImage.data(), m_outW, m_outH);
     }
 
-    m_context->UpdateSubresource(m_dynamicTex, 0, nullptr, m_cpuImage.data(), (UINT)m_outW * 4, 0);
+    m_context->UpdateSubresource(m_cpuUpload, 0, nullptr, m_cpuImage.data(), (UINT)m_outW * 4, 0);
 
     ID3D11Texture2D* backBuffer = nullptr;
     if (FAILED(AcquireBackBuffer(&backBuffer))) {
         return;
     }
-    m_context->CopyResource(backBuffer, m_dynamicTex);
+    m_context->CopyResource(backBuffer, m_cpuUpload);
     backBuffer->Release();
 
     HRESULT hr = PresentFrame();

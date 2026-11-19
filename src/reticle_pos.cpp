@@ -23,7 +23,7 @@ float g_tanH = 1.0f, g_tanV = 1.0f, g_shiftV = 0.0f;
 LARGE_INTEGER g_freq{};
 int g_sequence = 0;
 const int kRing = 4;     // results are read this many measurements later at most
-const int kValues = 5;   // centre x, y, half x, y (NDC), clip w
+const int kValues = 7;   // centre x, y, shown half x, y (NDC), clip w, unscaled half x, y
 
 struct EyeState {
     ID3D11Buffer* result = nullptr;
@@ -37,6 +37,7 @@ struct EyeState {
     LARGE_INTEGER drawn{};
     float x = 0, y = 0, hx = 0, hy = 0;
     float gameX = 0;  // x where the game draws it, before our reticle depth shift
+    float aimHx = 0, aimHy = 0;  // half-size before applying reticle scale or depth sizing
     unsigned measured = 0;
     double lagSum = 0;
     unsigned lagCount = 0;
@@ -63,9 +64,8 @@ ID3DBlob* Compile(const std::string& src, const char* target) {
 }
 
 // The geometry shader redraws the quad as it is shown (RsReshape: flat and/or scaled), finds
-// its centre (the middle of a triangle's longest side, the quad's diagonal) and half-size in
-// NDC, and hands them to a small triangle in the middle of the view, so they reach our pixel
-// shader wherever the quad is, even off screen.
+// its centre and both unscaled and displayed half-sizes in NDC, and hands them to a small
+// triangle in the middle of the view, so they reach our pixel shader even off screen.
 bool BuildShaders(ID3D11Device* dev) {
     std::string fields, pos, uv, error;
     if (!ReticleVSFields(fields, pos, uv, error)) {
@@ -78,22 +78,25 @@ bool BuildShaders(ID3D11Device* dev) {
         "struct O {\n"
         "    float4 pos : SV_Position;\n"
         "    nointerpolation float4 c : TEXCOORD0;\n"
-        "    nointerpolation float2 h : TEXCOORD1;\n"
+        "    nointerpolation float4 h : TEXCOORD1;\n"
         "};\n" +
         std::string(ReticleShapeHLSL()) +
+        "float2 HalfSize(float4 p0, float4 p1, float4 p2, float2 c) {\n"
+        "    return max(abs(p0.xy / p0.w - c), max(abs(p1.xy / p1.w - c), abs(p2.xy / p2.w - c)));\n"
+        "}\n"
         "[maxvertexcount(3)]\n"
         "void main(triangle V i[3], inout TriangleStream<O> o) {\n"
         "    float4 p0 = i[0].POS, p1 = i[1].POS, p2 = i[2].POS;\n"
         "    float2 t0 = " + ReticleUV(uv, "i[0]") + ", t1 = " + ReticleUV(uv, "i[1]") +
         ", t2 = " + ReticleUV(uv, "i[2]") +
         ";\n"
-        "    RsReshape(p0, p1, p2, t0, t1, t2);\n"
-        "    float2 s0 = p0.xy / p0.w, s1 = p1.xy / p1.w, s2 = p2.xy / p2.w;\n"
         "    float4 c = RsCenter(p0, p1, p2, t0, t1, t2);\n"
         "    float2 cn = c.xy / c.w;\n"
+        "    RsFlatten(p0, p1, p2, c);\n"
         "    O v;\n"
         "    v.c = float4(cn, c.w, 1);\n"
-        "    v.h = max(abs(s0 - cn), max(abs(s1 - cn), abs(s2 - cn)));\n"
+        "    v.h.zw = HalfSize(p0, p1, p2, cn);\n"
+        "    v.h.xy = HalfSize(RsScale(p0, c), RsScale(p1, c), RsScale(p2, c), cn);\n"
         "    v.pos = float4(-0.02, -0.02, 0.5, 1); o.Append(v);\n"
         "    v.pos = float4(0.06, -0.02, 0.5, 1); o.Append(v);\n"
         "    v.pos = float4(-0.02, 0.06, 0.5, 1); o.Append(v);\n"
@@ -103,7 +106,7 @@ bool BuildShaders(ID3D11Device* dev) {
         "struct O {\n"
         "    float4 pos : SV_Position;\n"
         "    nointerpolation float4 c : TEXCOORD0;\n"
-        "    nointerpolation float2 h : TEXCOORD1;\n"
+        "    nointerpolation float4 h : TEXCOORD1;\n"
         "};\n"
         "RWStructuredBuffer<uint> result : register(u0);\n"
         "void main(O i) {\n"
@@ -112,6 +115,8 @@ bool BuildShaders(ID3D11Device* dev) {
         "    InterlockedMax(result[2], asuint(i.h.x));\n"  // the larger of both triangles' (floats >= 0 sort as uints)
         "    InterlockedMax(result[3], asuint(i.h.y));\n"
         "    result[4] = asuint(i.c.z);\n"
+        "    InterlockedMax(result[5], asuint(i.h.z));\n"
+        "    InterlockedMax(result[6], asuint(i.h.w));\n"
         "}\n";
     ID3DBlob* gsCode = Compile(gs, "gs_5_0");
     if (!gsCode) return false;
@@ -202,6 +207,8 @@ void Collect(ID3D11DeviceContext* ctx, EyeState& e) {
         e.y = v[1];
         e.hx = v[2];
         e.hy = v[3];
+        e.aimHx = v[5];
+        e.aimHy = v[6];
         e.drawn = e.issued[i];
         e.have = true;
         g_sequence++;
@@ -224,8 +231,8 @@ bool ReticlePosAim(int eye, float& x, float& y, float& halfX, float& halfY) {
     if (!e.have) return false;
     x = e.gameX;
     y = e.y;
-    halfX = e.hx;
-    halfY = e.hy;
+    halfX = e.aimHx;
+    halfY = e.aimHy;
     return true;
 }
 

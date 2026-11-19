@@ -107,11 +107,10 @@ float4 RsFlat(float4 p, float4 c, float cy, float sy, float cp, float sp) {
     float3 v = RsView(p);
     v = float3(v.x * cy + v.z * sy, v.y, -v.x * sy + v.z * cy);
     v = float3(v.x, v.y * cp - v.z * sp, v.y * sp + v.z * cp);
-    float2 n = float2(v.x / (-v.z) / rsProj.x, v.y / (-v.z) / rsProj.y) * rsOpts.x;
+    float2 n = float2(v.x / (-v.z) / rsProj.x, v.y / (-v.z) / rsProj.y);
     return float4((c.xy / c.w + n) * c.w, c.z, c.w);
 }
-void RsReshape(inout float4 p0, inout float4 p1, inout float4 p2, float2 t0, float2 t1, float2 t2) {
-    float4 c = RsCenter(p0, p1, p2, t0, t1, t2);
+void RsFlatten(inout float4 p0, inout float4 p1, inout float4 p2, float4 c) {
     if (rsOpts.y > 0.5 && c.w > 0) {
         float3 d = normalize(RsView(c));
         float yaw = atan2(d.x, -d.z), pitch = asin(clamp(d.y, -1.0, 1.0));
@@ -119,11 +118,17 @@ void RsReshape(inout float4 p0, inout float4 p1, inout float4 p2, float2 t0, flo
         p0 = RsFlat(p0, c, cy, sy, cp, sp);
         p1 = RsFlat(p1, c, cy, sy, cp, sp);
         p2 = RsFlat(p2, c, cy, sy, cp, sp);
-    } else {
-        p0 = c + (p0 - c) * rsOpts.x;
-        p1 = c + (p1 - c) * rsOpts.x;
-        p2 = c + (p2 - c) * rsOpts.x;
     }
+}
+float4 RsScale(float4 p, float4 c) {
+    return rsOpts.x == 1.0 ? p : c + (p - c) * rsOpts.x;
+}
+void RsReshape(inout float4 p0, inout float4 p1, inout float4 p2, float2 t0, float2 t1, float2 t2) {
+    float4 c = RsCenter(p0, p1, p2, t0, t1, t2);
+    RsFlatten(p0, p1, p2, c);
+    p0 = RsScale(p0, c);
+    p1 = RsScale(p1, c);
+    p2 = RsScale(p2, c);
 }
 )";
 }

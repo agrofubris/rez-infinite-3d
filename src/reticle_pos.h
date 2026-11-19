@@ -25,5 +25,5 @@ void ReticlePosProjection(float& tanH, float& tanV, float& shiftV);
 int ReticlePosLatest(Rez3DReticleState* out);
 
 // Where the game aims in this eye (the octagon's centre before our depth shift) and the
-// octagon's half-size, in NDC; false until measured
+// octagon's unscaled half-size, in NDC; false until measured
 bool ReticlePosAim(int eye, float& x, float& y, float& halfX, float& halfY);

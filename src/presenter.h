@@ -218,7 +218,8 @@ private:
     ID3D11Device* m_device = nullptr;
     ID3D11DeviceContext* m_context = nullptr;
     IDXGISwapChain* m_swapChain = nullptr;
-    ID3D11Texture2D* m_dynamicTex = nullptr;
+    ID3D11Texture2D* m_cpuUpload = nullptr;
+    int m_cpuUploadW = 0, m_cpuUploadH = 0;
     std::vector<uint8_t> m_cpuImage;
     int m_dumpRemaining = 0;
     int m_dumpAfter = 0;
@@ -227,7 +228,6 @@ private:
     int m_dumpsTimed = 0;
     unsigned long long m_framesSeen = 0;
     unsigned m_dumpIndex = 0;
-    UINT m_dynamicW = 0, m_dynamicH = 0;
 
     int m_format = 0;  // parsed enum
 };

@@ -123,11 +123,11 @@ Parallax follows 3D Vision: `parallax = Separation × (1 − Convergence / dista
   in use.
 - **Reticle depth** (`game` or `auto`): Rez draws its reticle about 440 m
   away, so a near target such as a boss and the reticle can't both be fused at
-  once. `auto` places the reticle at the depth of what is under its centre,
+  once. `auto` places the reticle at the depth of what's inside its octagon,
   and eases between depths; over empty sky it goes back to where the game puts
   it. Most of Rez's enemies are glowing wireframes that never write the depth
   buffer, so the add-on draws each of the game's meshes again, clipped to the
-  reticle's octagon (roughly where Rez locks on), and keeps the nearest; glow
+  reticle's unscaled octagon (roughly where Rez locks on), and keeps the nearest; glow
   sprites don't count, as their halos cover much more than what they belong
   to. Far enemies (Area 1's
   fly about 200 m out) barely change it; near ones such as a boss do. It takes
@@ -317,11 +317,11 @@ OpenVR folder. The launcher covers the common ones. Others:
 Needs Visual Studio 2022 or its Build Tools (C++ workload, Windows SDK) and CMake.
 
 ```
-powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 0.1.0
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Version 0.4.1
 ```
 
 This builds the runtime, the controller bridge and the launcher, and writes
-`dist\rez-infinite-3d-0.1.0.zip`. `build\launcher\Rez3D.exe` installs the
+`dist\rez-infinite-3d-0.4.1.zip`. `build\launcher\Rez3D.exe` installs the
 files in `build\launcher\bin` like the release does;
 `install.ps1` / `uninstall.ps1` also work straight from a source build.
 

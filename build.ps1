@@ -1,6 +1,6 @@
 # Builds everything and packages a release zip in dist\.
 #
-#   powershell -ExecutionPolicy Bypass -File .\build.ps1 [-Version 0.1.0] [-SrLib <SR-lib checkout>]
+#   powershell -ExecutionPolicy Bypass -File .\build.ps1 [-Version 0.4.1] [-SrLib <SR-lib checkout>]
 #
 # Needs Visual Studio 2022 or its Build Tools (C++ workload, Windows SDK) and
 # CMake. The launcher and test tool use the C# compiler that ships with Windows.
